@@ -1,6 +1,6 @@
 // ==UserScript==
-// @name         Kitsu: MAL rating
-// @description  Shows MyAnimeList.net rating on Kitsu.io
+// @name         Kitsu augmented with MAL
+// @description  Shows MyAnimeList.net data on Kitsu.io
 // @version      1.0.0
 
 // @namespace    https://github.com/tophf
@@ -19,155 +19,237 @@
 // ==/UserScript==
 
 'use strict';
-/* global GM_xmlhttpRequest unsafeWindow exportFunction */
+/* global GM_info GM_xmlhttpRequest unsafeWindow exportFunction */
 
-const API = 'https://kitsu.io/api/edge/';
-const MAL = 'https://myanimelist.net/';
-// https://media.kitsu.io/anime/poster_images/11578/tiny.jpg?1465506853
-const RX_KITSU_TYPE_ID = /\/(anime|manga).*?\/(\d+)\/|$/;
+const API_URL = 'https://kitsu.io/api/edge/';
+const MAL_URL = 'https://myanimelist.net/';
+const RX_KITSU_TYPE_SLUG = /\/(anime|manga)\/([^/]+)|$/;
+const RX_INTERCEPT = new RegExp(
+  '^' + API_URL.replace(/\./g, '\\.') +
+  '(anime|manga)\\?.*?&include=');
+const HOUR = 3600e3;
+const CACHE_DURATION = 4 * HOUR;
 
-async function run() {
-  const type = location.pathname.split('/', 2)[1];
-  const method = getMappingsByKnownId() || Interceptor.getMappings(API + type);
-  const malId = getMalId(await method);
-  if (malId)
-    plantMalData(await getMalData(type, malId));
+async function main() {
+  new XHRInterceptor().subscribe(data => processMappings(data)/*.then(plant)*/);
+  new HistoryInterceptor().subscribe((state, title, url) => onUrlChange(url));
+  addEventListener('popstate', () => onUrlChange());
+  onUrlChange();
 }
 
-function getMappingsByKnownId() {
-  const el = $('meta[property="og:image"]');
-  if (!el)
+async function onUrlChange(path = location.pathname) {
+  const [, type, slug] = path.match(RX_KITSU_TYPE_SLUG);
+  if (!slug)
     return;
-  const [, type, id] = el.content.match(RX_KITSU_TYPE_ID);
-  if (!id)
+  let {url, data} = Cache.read(type, slug) || {};
+  if (url && !data)
+    data = await fetchMalData(url);
+  if (!data)
+    data = await processMappings(await fetchMappings(type, slug), type, slug);
+  if (!data)
     return;
-  return getJson(
-    `${API}${type}/${id}?` + [
-      'include=mappings',
-      'fields[mappings]=externalSite,externalId',
-      'fields[anime]=id',
-    ].join('&'));
+  if (!data.url)
+    data.url = url;
+  plant(data);
 }
 
-function getMalId(mappings) {
-  for (const {type, attributes: a} of mappings.included || []) {
+function fetchMappings(type, slug) {
+  return fetchJson(API_URL + type + '?' + [
+    'filter[slug]=' + slug,
+    'include=mappings',
+    'fields[mappings]=externalSite,externalId',
+    'fields[anime]=id,type,slug',
+  ].join('&'));
+}
+
+function getMalUrl(data) {
+  for (const {type, attributes: a} of data.included || []) {
     if (type === 'mappings' &&
-        a.externalSite.startsWith('myanimelist'))
-      return a.externalId;
+        a.externalSite.startsWith('myanimelist')) {
+      const malType = a.externalSite.split('/')[1];
+      const malId = a.externalId;
+      return MAL_URL + malType + '/' + malId;
+    }
   }
 }
 
-async function getMalData(type, id) {
-  const url = MAL + type + '/' + id;
+async function fetchMalData(url) {
+  Rating.remove();
   const doc = await getDoc(url);
   const rating = Number($text('[itemprop="ratingValue"]', doc).match(/[\d.]+|$/)[0]);
-  return {url, rating};
+  return {rating};
 }
 
-function plantMalData({url, rating}) {
-  if (rating) {
-    let a;
-    $create('span', {
+async function processMappings(payload, type, slug) {
+  const url = getMalUrl(payload);
+  if (!url)
+    return;
+  if (!type)
+    ({type, attributes: {slug}} = payload.data[0]);
+  let {data} = Cache.read(type, slug) || {};
+  if (!data) {
+    data = await fetchMalData(url);
+    Cache.write(type, slug, url.slice(MAL_URL.length), data);
+  }
+  data.url = url;
+  return data;
+}
+
+function plant(data = {}) {
+  if (data.rating)
+    Rating.render(data);
+  else
+    Rating.remove();
+}
+
+class Rating {
+  static get id() {
+    return GM_info.script.name + ':rating';
+  }
+  static remove() {
+    const el = document.getElementById(Rating.id);
+    if (el)
+      el.remove();
+  }
+  static render({url, rating}) {
+    const el = $create('span', {
+      id: Rating.id,
       className: [
         'media-community-rating',
-        'percent-quarter-' +
-        Math.max(1, Math.min(4, 1 + (rating - .01) / 2.5 >> 0)),
+        'percent-quarter-' + Math.max(1, Math.min(4, 1 + (rating - .001) / 2.5 >> 0)),
       ].join(' '),
-      style: 'margin-left:2em',
-      children:
-        a = $create('a', {
-          textContent: rating * 10 + '% on MAL',
+      style: [
+        'margin-left: 2em',
+        // 'opacity: 0',
+        'transition: opacity .5s',
+      ].join(';'),
+      children: [
+        $create('a', {
+          textContent: (rating * 10).toFixed(2).replace(/\.?0+$/, '') + '% on MAL',
           href: url,
           rel: 'noopener noreferrer',
           target: '_blank',
           style: [
             'color: inherit',
             'font-family: inherit',
-            'opacity: 0',
-            'transition: opacity .5s',
           ].join(';'),
         }),
-      parent: $('.media-rating'),
+      ],
     });
-    setTimeout(() => a.style.removeProperty('opacity'));
+    $appears({cls: 'media-rating'}).then(parent => parent.appendChild(el));
+    // setTimeout(() => el.style.removeProperty('opacity'));
   }
-}
-
-function getJson(urlOrOptions) {
-  return new Promise((resolve, reject) => {
-    if (!urlOrOptions.url)
-      urlOrOptions = {url: urlOrOptions};
-    GM_xmlhttpRequest(Object.assign({
-      method: 'GET',
-      responseType: 'json',
-      headers: {
-        'Accept': 'application/vnd.api+json',
-      },
-    }, urlOrOptions, {
-      onload: r => resolve(r.response),
-      onerror: reject,
-      ontimeout: reject,
-    }));
-  });
-}
-
-function getDoc(urlOrOptions) {
-  return new Promise((resolve, reject) => {
-    if (!urlOrOptions.url)
-      urlOrOptions = {url: urlOrOptions};
-    if (!urlOrOptions.method)
-      urlOrOptions.method = 'GET';
-    GM_xmlhttpRequest(Object.assign(urlOrOptions, {
-      onload: r => resolve(new DOMParser().parseFromString(r.response, 'text/html')),
-      onerror: reject,
-      ontimeout: reject,
-    }));
-  });
 }
 
 class Interceptor {
-
-  static getMappings(urlPrefix) {
-    const proto = unsafeWindow.XMLHttpRequest.prototype;
-    Interceptor.originalOpen = proto.open;
-    Interceptor.urlPrefix = urlPrefix;
-    proto.open = exportFunction(Interceptor._open, unsafeWindow);
-    return new Promise(Interceptor._run);
+  constructor(name, method, fn) {
+    this._subscribers = new Set();
+    const original = unsafeWindow[name].prototype[method];
+    unsafeWindow[name].prototype[method] = exportFunction(function () {
+      const augmentedArgs = fn.apply(this, arguments);
+      return original.apply(this, augmentedArgs || arguments);
+    }, unsafeWindow);
   }
-
-  static _run(resolve, reject) {
-    Interceptor.promise = {resolve, reject};
+  subscribe(fn) {
+    this._subscribers.add(fn);
   }
+}
 
-  static _open(method, url, ...args) {
-    if (typeof method === 'string' && method.toLowerCase() === 'get' &&
-        typeof url === 'string' && url.startsWith(Interceptor.urlPrefix) && url.includes('&include='))
-      url = Interceptor._augment(url);
-    return Interceptor.originalOpen.call(this, method, url, ...args);
+class HistoryInterceptor extends Interceptor {
+  constructor() {
+    super('History', 'pushState', (state, title, url) => {
+      for (const fn of this._subscribers)
+        fn(url);
+    });
+  }
+}
+
+class XHRInterceptor extends Interceptor {
+  constructor() {
+    let self;
+    super('XMLHttpRequest', 'open', function (method, url, ...args) {
+      if (/^get$/i.test(method) &&
+          RX_INTERCEPT.test(url)) {
+        this.addEventListener('load', e => self._onload(e), {once: true});
+        url = XHRInterceptor._augment(url);
+        return [method, url, ...args];
+      }
+    });
+    self = this;
   }
 
   static _augment(url) {
     const u = new URL(url);
     u.searchParams.set('include', u.searchParams.get('include') + ',mappings');
     u.searchParams.set('fields[mappings]', 'externalSite,externalId');
-    url = u.href;
-    this.addEventListener('load', Interceptor._onloadend);
-    this.addEventListener('loadend', Interceptor._onloadend);
-    return url;
+    return u.href;
   }
 
-  static _onloadend(e) {
-    const ok = e.type === 'load';
-    const action = Interceptor.promise[ok ? 'resolve' : 'reject'];
-
-    unsafeWindow.XMLHttpRequest.prototype.open = Interceptor.originalOpen;
-    this.removeEventListener('load', Interceptor._onloadend);
-    this.removeEventListener('loadend', Interceptor._onloadend);
-    Interceptor.originalOpen = null;
-    Interceptor.promise = null;
-
-    action(ok ? JSON.parse(this.responseText) : e.target);
+  _onload(e) {
+    const json = JSON.parse(e.target.responseText);
+    for (const fn of this._subscribers)
+      fn(json);
   }
+}
+
+class Cache {
+  /**
+   * @param {String} type
+   * @param {String} slug
+   * @return {{url:String, data?:Object}|void}
+   */
+  static read(type, slug) {
+    const key = type + ':' + slug;
+    const [time, malTypeId] = (localStorage[key] || '').split(' ');
+
+    if (!time || !malTypeId)
+      return;
+
+    const url = MAL_URL + malTypeId;
+
+    if (Date.now() - parseInt(time, 36) > CACHE_DURATION)
+      return {url};
+
+    try {
+      return {
+        url,
+        data: JSON.parse(localStorage[key + ':MAL']),
+      };
+    } catch (e) {}
+  }
+
+  static write(type, slug, malTypeId, data) {
+    const key = type + ':' + slug;
+    localStorage[key] = Date.now().toString(36) + ' ' + malTypeId;
+    localStorage[key + ':MAL'] = JSON.stringify(data);
+  }
+}
+
+function fetchJson(url) {
+  return new Promise(resolve => {
+    GM_xmlhttpRequest({
+      url,
+      method: 'GET',
+      responseType: 'json',
+      headers: {
+        'Accept': 'application/vnd.api+json',
+      },
+      onload: r => resolve(r.response),
+    });
+  });
+}
+
+function getDoc(url) {
+  return new Promise(resolve => {
+    GM_xmlhttpRequest({
+      url,
+      method: 'GET',
+      onload(r) {
+        const doc = new DOMParser().parseFromString(r.response, 'text/html');
+        resolve(doc);
+      },
+    });
+  });
 }
 
 function $(selector, node = document) {
@@ -183,7 +265,7 @@ function $text(selector, node = document) {
 
 function $create(tag, props) {
   let parent, after, before;
-  const el = document.createElement(tag);
+  const el = props.id && document.getElementById(props.id) || document.createElement(tag);
   const hasOwnProperty = Object.hasOwnProperty;
   for (const k in props) {
     if (!hasOwnProperty.call(props, k))
@@ -191,6 +273,8 @@ function $create(tag, props) {
     const v = props[k];
     switch (k) {
       case 'children':
+        if (el.firstChild)
+          el.textContent = '';
         if (Symbol.iterator in v && typeof v !== 'string')
           el.append(...v);
         else
@@ -206,16 +290,35 @@ function $create(tag, props) {
         before = v;
         continue;
       default:
-        el[k] = v;
+        if (el[k] !== v)
+          el[k] = v;
     }
   }
-  if (parent)
+  if (parent && parent !== el.parentNode)
     parent.appendChild(el);
-  if (before)
+  if (before && before !== el.nextSibling)
     before.insertAdjacentElement('beforebegin', el);
-  if (after)
+  if (after && after !== el.previousSibling)
     after.insertAdjacentElement('aftereend', el);
   return el;
 }
 
-run();
+function $appears({cls}) {
+  const byClass = document.getElementsByClassName(cls);
+  return Promise.resolve(
+    byClass[0] ||
+    new Promise(resolve => {
+      new MutationObserver((mutations, observer) => {
+        var el = byClass[0];
+        if (el) {
+          observer.disconnect();
+          resolve(el);
+        }
+      }).observe(document, {
+        childList: true,
+        subtree: true,
+      });
+    }));
+}
+
+main();
