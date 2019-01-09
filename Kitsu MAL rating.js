@@ -56,7 +56,7 @@ class App {
     if (data)
       App.plant(Object.assign({url, type, slug}, data));
     else
-      await App.cook(await App.inquire(type, slug), type, slug);
+      await App.cook(await App.inquire(type, slug));
   }
 
   static inquire(type, slug) {
@@ -68,12 +68,11 @@ class App {
     ].join('&'));
   }
 
-  static async cook(payload, type, slug) {
+  static async cook(payload) {
     const url = Mal.findUrl(payload);
     if (!url)
       return;
-    if (!type)
-      ({type, attributes: {slug}} = payload.data[0]);
+    const {type, attributes: {slug}} = payload.data[0];
     let {data} = Cache.read(type, slug) || {};
     if (!data) {
       App.busy = true;
@@ -269,31 +268,33 @@ class Cache {
    * @return {{url:String, data?:Object}|void}
    */
   static read(type, slug) {
-    const key = Cache.key(type, slug);
-    const [time, malTID] = (localStorage[key] || '').split(' ');
+    const key = Cache._key(type, slug);
+    const [time, TID] = (localStorage[key] || '').split(' ');
 
-    if (!time || !malTID)
+    if (!time || !TID)
       return;
 
-    const url = MAL_URL + Mal.expandTypeId(malTID);
+    const url = MAL_URL + Mal.expandTypeId(TID);
 
-    if (Date.now() - parseInt(time, 36) * 60e3 > CACHE_DURATION)
+    if (Cache._expired(time))
       return {url};
 
+    const malKey = Cache._malKey(TID);
     try {
-      return {
-        url,
-        data: JSON.parse(localStorage[Cache.malKey(malTID)]),
-      };
-    } catch (e) {}
+      const data = JSON.parse(localStorage[malKey]);
+      return {url, data};
+    } catch (e) {
+      delete localStorage[malKey];
+      return {url};
+    }
   }
 
   static write(type, slug, malFullTypeId, data) {
-    const key = Cache.key(type, slug);
-    const malTID = Mal.shortenTypeId(malFullTypeId);
-    localStorage[key] = Math.floor(Date.now() / 60e3).toString(36) + ' ' + malTID;
+    const key = Cache._key(type, slug);
+    const TID = Mal.shortenTypeId(malFullTypeId);
+    localStorage[key] = Math.floor(Date.now() / 60e3).toString(36) + ' ' + TID;
 
-    const malKey = Cache.malKey(malTID);
+    const malKey = Cache._malKey(TID);
     const dataStr = JSON.stringify(data);
     if (dataStr !== '{}')
       localStorage[malKey] = dataStr;
@@ -301,11 +302,15 @@ class Cache {
       delete localStorage[malKey];
   }
 
-  static key(type, slug) {
+  static _expired(time) {
+    return Date.now() - parseInt(time, 36) * 60e3 > CACHE_DURATION;
+  }
+
+  static _key(type, slug) {
     return `:${type.slice(0, 1)}:${slug}`;
   }
 
-  static malKey(malTID) {
+  static _malKey(malTID) {
     return ':MAL:' + malTID;
   }
 }
