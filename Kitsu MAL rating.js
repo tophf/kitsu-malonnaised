@@ -1,5 +1,5 @@
 // ==UserScript==
-// @name         Kitsu augmented with MAL
+// @name         Kitsu MALonnaised
 // @description  Shows MyAnimeList.net data on Kitsu.io
 // @version      1.0.0
 
@@ -10,6 +10,7 @@
 // @match        *://kitsu.io/*
 
 // @grant        GM_xmlhttpRequest
+// @grant        GM_addStyle
 // @grant        unsafeWindow
 
 // @run-at       document-start
@@ -19,7 +20,7 @@
 // ==/UserScript==
 
 'use strict';
-/* global GM_info GM_xmlhttpRequest unsafeWindow exportFunction */
+/* global GM_info GM_xmlhttpRequest GM_addStyle unsafeWindow exportFunction */
 
 const API_URL = 'https://kitsu.io/api/edge/';
 const MAL_URL = 'https://myanimelist.net/';
@@ -31,17 +32,46 @@ const RX_INTERCEPT = new RegExp(
 
 const SEL_READY_SIGN = 'meta[property="og:url"]';
 const SEL_RATING_CONTAINER = '.media-rating';
-const ID_RATING = GM_info.script.name + ':rating';
+
+const ID = (me => ({
+  RATING: `${me}:RATING`,
+  MEMBERS: `${me}:MEMBERS`,
+  FAVS: `${me}:FAVS`,
+}))(GM_info.script.name);
 
 const HOUR = 3600e3;
 const CACHE_DURATION = 4 * HOUR;
 
+
 class App {
   static async init() {
-    new XHRInterceptor().subscribe(App.cook);
-    new HistoryInterceptor().subscribe(App.onUrlChange);
+    new InterceptXHR().subscribe(App.cook);
+    new InterceptHistory().subscribe(App.onUrlChange);
     window.addEventListener('popstate', () => App.onUrlChange());
     App.onUrlChange();
+
+    // language=CSS
+    GM_addStyle(`
+      ${Object.keys(ID).map(id => '#' + id).join(',')} {
+        transition: opacity .5s;
+      }
+      #RATING:not(:first-child),
+      #MEMBERS,
+      #FAVS {
+        margin-left: 1em;
+      }
+      #MEMBERS::before {
+        content: '\\1F464';
+        margin-right: .25em;
+      }
+      #FAVS::before {
+        content: '\\2764';
+        margin-right: .25em;
+      }
+    `.replace(
+      /#([A-Z]+)/g,
+      (_, id) => `#${CSS.escape(ID[id])}`)
+    );
   }
 
   static async onUrlChange(path = location.pathname) {
@@ -85,22 +115,114 @@ class App {
 
   static async plant(data = {}) {
     await Mutant.ogUrl(data);
-    if (data.rating !== undefined)
-      Rating.render(data);
+    Render.rating(data);
+    Render.users(data);
     App.busy = false;
   }
 
   static async expire() {
-    if (document.getElementById(ID_RATING)) {
-      await new Promise(setTimeout);
-      if (App.busy)
-        Rating.hide();
+    const elements = [
+      $id(ID.RATING),
+    ];
+    if (!elements.length)
+      return;
+    await new Promise(setTimeout);
+    if (!App.busy)
+      return;
+    for (const el of elements)
+      el.style.setProperty('opacity', '0');
+  }
+}
+
+
+class Cache {
+  /**
+   * @param {String} type
+   * @param {String} slug
+   * @return {{url:String, data?:Object}|void}
+   */
+  static read(type, slug) {
+    const key = Cache.key(type, slug);
+    const [time, TID] = (localStorage[key] || '').split(' ');
+
+    if (!time || !TID)
+      return;
+
+    const url = MAL_URL + Mal.expandTypeId(TID);
+
+    if (Cache.expired(time))
+      return {url};
+
+    const malKey = Cache.malKey(TID);
+    try {
+      const data = JSON.parse(localStorage[malKey]);
+      return {url, data};
+    } catch (e) {
+      delete localStorage[malKey];
+      return {url};
     }
+  }
+
+  static write(type, slug, malFullTypeId, data) {
+    const key = Cache.key(type, slug);
+    const TID = Mal.shortenTypeId(malFullTypeId);
+    localStorage[key] = Math.floor(Date.now() / 60e3).toString(36) + ' ' + TID;
+
+    const malKey = Cache.malKey(TID);
+    const dataStr = JSON.stringify(data);
+    if (dataStr !== '{}')
+      localStorage[malKey] = dataStr;
+    else
+      delete localStorage[malKey];
+  }
+
+  static expired(time) {
+    return Date.now() - parseInt(time, 36) * 60e3 > CACHE_DURATION;
+  }
+
+  static key(type, slug) {
+    return `:${type.slice(0, 1)}:${slug}`;
+  }
+
+  static malKey(malTID) {
+    return ':MAL:' + malTID;
+  }
+}
+
+
+class Get {
+
+  static json(url) {
+    return new Promise(resolve => {
+      GM_xmlhttpRequest({
+        url,
+        method: 'GET',
+        responseType: 'json',
+        headers: {
+          'Accept': 'application/vnd.api+json',
+        },
+        onload: r => resolve(r.response),
+      });
+    });
+  }
+
+  static doc(url) {
+    return new Promise(resolve => {
+      GM_xmlhttpRequest({
+        url,
+        method: 'GET',
+        onload(r) {
+          const doc = new DOMParser().parseFromString(r.response, 'text/html');
+          resolve(doc);
+        },
+      });
+    });
   }
 }
 
 
 class Mal {
+
   static expandTypeId(short) {
     const t = short.slice(0, 1);
     const fullType = t === 'a' && 'anime' ||
@@ -138,6 +260,10 @@ class Mal {
     return a && a.href.match(/\d+\/[^/]+$|$/)[0];
   }
 
+  static str2num(str) {
+    return str && Number(str.replace(/,/g, '')) || undefined;
+  }
+
   static async scavenge(url) {
     const doc = await Get.doc(url);
     let el, rating, members, favs;
@@ -146,11 +272,19 @@ class Mal {
            '[data-id="info1"] > span:not(.dark_text)', doc);
     rating = $text(el).trim();
     rating = rating && Number(rating.match(/[\d.]+|$/)[0]) || rating || undefined;
+    rating = rating && [
+      rating,
+      Mal.str2num($text('[itemprop="ratingCount"]', doc)),
+    ];
 
-    while (!members && !favs && (el = el.nextElementSibling)) {
+    while (el.parentElement &&
+           !el.parentElement.textContent.includes('Members:'))
+      el = el.parentElement;
+    while ((!members || !favs) &&
+           (el = el.nextElementSibling)) {
       const txt = el.textContent;
-      members = members || txt.match(/Members:\s*([\d,]+)|$/)[1];
-      favs = favs || txt.match(/Favorites:\s*([\d,]+)|$/)[1];
+      members = members || Mal.str2num(txt.match(/Members:\s*([\d,]+)|$/)[1]);
+      favs = favs || Mal.str2num(txt.match(/Favorites:\s*([\d,]+)|$/)[1]);
     }
 
     const chars = $$('.detail-characters-list table[width]', doc).map(el => {
@@ -179,36 +313,8 @@ class Mal {
   }
 }
 
-class Rating {
 
-  static hide() {
-    const el = document.getElementById(ID_RATING);
-    if (el)
-      el.style.opacity = '0';
-  }
-
-  static render({rating: r, url}) {
-    const parent = $(SEL_RATING_CONTAINER);
-    const quarter = r > 0 && Math.max(1, Math.min(4, 1 + (r - .001) / 2.5 >> 0));
-    const textContent = (r > 0 ? (r * 10).toFixed(2).replace(/\.?0+$/, '') + '%' : r) + ' on MAL';
-    const el = $create('a', {
-      textContent,
-      href: url,
-      id: ID_RATING,
-      className: 'media-community-rating' + (quarter ? 'percent-quarter-' + quarter : ''),
-      style: 'transition: opacity 1s; opacity: 1',
-      rel: 'noopener noreferrer',
-      target: '_blank',
-      parent,
-    });
-    if (el.previousElementSibling)
-      el.style.setProperty('margin-left', '1em');
-    else
-      el.style.removeProperty('margin-left');
-  }
-}
-
-class Interceptor {
+class Intercept {
   constructor(name, method, fn) {
     this._subscribers = new Set();
     const original = unsafeWindow[name].prototype[method];
@@ -223,7 +329,8 @@ class Interceptor {
   }
 }
 
-class HistoryInterceptor extends Interceptor {
+
+class InterceptHistory extends Intercept {
   constructor() {
     super('History', 'pushState', (state, title, url) => {
       for (const fn of this._subscribers)
@@ -232,88 +339,128 @@ class HistoryInterceptor extends Interceptor {
   }
 }
 
-class XHRInterceptor extends Interceptor {
+
+class InterceptXHR extends Intercept {
   constructor() {
     let self;
     super('XMLHttpRequest', 'open', function (method, url, ...args) {
       if (/^get$/i.test(method) &&
           RX_INTERCEPT.test(url)) {
         App.expire();
-        this.addEventListener('load', e => self._onload(e), {once: true});
-        url = XHRInterceptor._augment(url);
+        this.addEventListener('load', e => self.onload(e), {once: true});
+        url = InterceptXHR.augment(url);
         return [method, url, ...args];
       }
     });
     self = this;
   }
 
-  static _augment(url) {
+  static augment(url) {
     const u = new URL(url);
     u.searchParams.set('include', u.searchParams.get('include') + ',mappings');
     u.searchParams.set('fields[mappings]', 'externalSite,externalId');
     return u.href;
   }
 
-  _onload(e) {
+  onload(e) {
     const json = JSON.parse(e.target.responseText);
     for (const fn of this._subscribers)
       fn(json);
   }
 }
 
-class Cache {
-  /**
-   * @param {String} type
-   * @param {String} slug
-   * @return {{url:String, data?:Object}|void}
-   */
-  static read(type, slug) {
-    const key = Cache._key(type, slug);
-    const [time, TID] = (localStorage[key] || '').split(' ');
 
-    if (!time || !TID)
-      return;
+class Mutant {
 
-    const url = MAL_URL + Mal.expandTypeId(TID);
+  static ogUrl(data) {
+    const url = TypeSlug.toUrl(data);
+    const el = $(SEL_READY_SIGN);
+    if (el && el.content === url)
+      return Promise.resolve();
+    if (!Mutant._state)
+      Mutant.init();
+    Mutant._state.url = url;
+    return new Promise(Mutant.subscribe);
+  }
 
-    if (Cache._expired(time))
-      return {url};
+  static subscribe(fn) {
+    Mutant._state.subscribers.add(fn);
+    if (!Mutant._state.active)
+      Mutant.start();
+  }
 
-    const malKey = Cache._malKey(TID);
-    try {
-      const data = JSON.parse(localStorage[malKey]);
-      return {url, data};
-    } catch (e) {
-      delete localStorage[malKey];
-      return {url};
+  static init() {
+    Mutant._state = {
+      active: false,
+      subscribers: new Set(),
+      observer: new MutationObserver(Mutant.observer),
+      url: '',
+    };
+  }
+
+  static start() {
+    Mutant._state.observer.observe(document.head, {childList: true});
+    Mutant._state.observer.active = true;
+  }
+
+  static resolve() {
+    Mutant._state.observer.disconnect();
+    Mutant._state.observer.active = false;
+    Mutant._state.subscribers.forEach(fn => fn.apply(null, arguments));
+    Mutant._state.subscribers.clear();
+  }
+
+  static observer(mm) {
+    for (var i = 0, m; (m = mm[i++]);) {
+      for (var j = 0, added = m.addedNodes, n; (n = added[j++]);) {
+        if (n.localName === 'meta' &&
+            n.content === Mutant._state.url) {
+          Mutant.resolve();
+          return;
+        }
+      }
     }
   }
+}
 
-  static write(type, slug, malFullTypeId, data) {
-    const key = Cache._key(type, slug);
-    const TID = Mal.shortenTypeId(malFullTypeId);
-    localStorage[key] = Math.floor(Date.now() / 60e3).toString(36) + ' ' + TID;
 
-    const malKey = Cache._malKey(TID);
-    const dataStr = JSON.stringify(data);
-    if (dataStr !== '{}')
-      localStorage[malKey] = dataStr;
-    else
-      delete localStorage[malKey];
+class Render {
+
+  static num2str(num) {
+    return num && num.toLocaleString() || '';
   }
 
-  static _expired(time) {
-    return Date.now() - parseInt(time, 36) * 60e3 > CACHE_DURATION;
+  static rating({rating: [r, count] = ['N/A'], url} = {}) {
+    const quarter = r > 0 && Math.max(1, Math.min(4, 1 + (r - .001) / 2.5 >> 0));
+    const str = (r > 0 ? (r * 10).toFixed(2).replace(/\.?0+$/, '') + '%' : r) + ' on MAL';
+    $create('a', {
+      textContent: str,
+      title: count && `Scored by ${Render.num2str(count)} users` || '',
+      href: url,
+      id: ID.RATING,
+      parent: $(SEL_RATING_CONTAINER),
+      className: 'media-community-rating' + (quarter ? ' percent-quarter-' + quarter : ''),
+      rel: 'noopener noreferrer',
+      target: '_blank',
+    });
   }
 
-  static _key(type, slug) {
-    return `:${type.slice(0, 1)}:${slug}`;
-  }
-
-  static _malKey(malTID) {
-    return ':MAL:' + malTID;
+  static users({members, favs}) {
+    $create('span', {
+      id: ID.MEMBERS,
+      after: $id(ID.RATING),
+      textContent: Render.num2str(members),
+      style: members ? '' : 'opacity:0',
+    });
+    $create('span', {
+      id: ID.FAVS,
+      after: $id(ID.MEMBERS),
+      textContent: Render.num2str(favs),
+      style: favs ? '' : 'opacity:0',
+    });
   }
 }
+
 
 class TypeSlug {
 
@@ -327,107 +474,22 @@ class TypeSlug {
   }
 }
 
-class Mutant {
-
-  static ogUrl(data) {
-    const url = TypeSlug.toUrl(data);
-    const el = $(SEL_READY_SIGN);
-    if (el && el.content === url)
-      return Promise.resolve();
-    if (!Mutant._state)
-      Mutant._init();
-    Mutant._state.url = url;
-    return new Promise(Mutant.subscribe);
-  }
-
-  static subscribe(fn) {
-    Mutant._state.subscribers.add(fn);
-    if (!Mutant._state.active)
-      Mutant._start();
-  }
-
-  static _init() {
-    Mutant._state = {
-      active: false,
-      subscribers: new Set(),
-      observer: new MutationObserver(Mutant._observer),
-      url: '',
-    };
-  }
-
-  static _start() {
-    Mutant._state.observer.observe(document.head, {childList: true});
-    Mutant._state.observer.active = true;
-  }
-
-  static _resolve() {
-    Mutant._state.observer.disconnect();
-    Mutant._state.observer.active = false;
-    Mutant._state.subscribers.forEach(fn => fn.apply(null, arguments));
-    Mutant._state.subscribers.clear();
-  }
-
-  static _observer(mm) {
-    for (var i = 0, m; (m = mm[i++]);) {
-      for (var j = 0, added = m.addedNodes, n; (n = added[j++]);) {
-        if (n.localName === 'meta' &&
-            n.content === Mutant._state.url) {
-          Mutant._resolve();
-          return;
-        }
-      }
-    }
-  }
-}
-
-class Get {
-
-  static json(url) {
-    return new Promise(resolve => {
-      GM_xmlhttpRequest({
-        url,
-        method: 'GET',
-        responseType: 'json',
-        headers: {
-          'Accept': 'application/vnd.api+json',
-        },
-        onload: r => resolve(r.response),
-      });
-    });
-  }
-
-  static doc(url) {
-    return new Promise(resolve => {
-      GM_xmlhttpRequest({
-        url,
-        method: 'GET',
-        onload(r) {
-          const doc = new DOMParser().parseFromString(r.response, 'text/html');
-          resolve(doc);
-        },
-      });
-    });
-  }
-}
 
 function $(selector, node = document) {
   return node.querySelector(selector);
+}
+
+function $id(id, doc = document) {
+  return doc.getElementById(id);
 }
 
 function $$(selector, node = document) {
   return [...node.querySelectorAll(selector)];
 }
 
-function $text(selector, node = document) {
-  const el = typeof selector === 'string' ?
-    node.querySelector(selector) :
-    selector;
-  return el ? el.textContent.trim() : '';
-}
-
 function $create(tag, props) {
   let parent, after, before;
-  const el = props.id && document.getElementById(props.id) || document.createElement(tag);
+  const el = props.id && $id(props.id) || document.createElement(tag);
   const hasOwnProperty = Object.hasOwnProperty;
   for (const k in props) {
     if (!hasOwnProperty.call(props, k))
@@ -459,10 +521,17 @@ function $create(tag, props) {
   if (parent && parent !== el.parentNode)
     parent.appendChild(el);
   if (before && before !== el.nextSibling)
-    before.insertAdjacentElement('beforebegin', el);
+    before.insertAdjacentElement('beforeBegin', el);
   if (after && after !== el.previousSibling)
-    after.insertAdjacentElement('aftereend', el);
+    after.insertAdjacentElement('afterEnd', el);
   return el;
+}
+
+function $text(selector, node = document) {
+  const el = typeof selector === 'string' ?
+    node.querySelector(selector) :
+    selector;
+  return el ? el.textContent.trim() : '';
 }
 
 App.init();
