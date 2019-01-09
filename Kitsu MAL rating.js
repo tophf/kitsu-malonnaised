@@ -100,7 +100,21 @@ class App {
   }
 }
 
+
 class Mal {
+  static expandTypeId(short) {
+    const t = short.slice(0, 1);
+    const fullType = t === 'a' && 'anime' ||
+                     t === 'm' && 'manga' ||
+                     t === 'c' && 'character' ||
+                     t === 'p' && 'people' ||
+                     '';
+    return fullType + '/' + short.slice(1);
+  }
+
+  static shortenTypeId(full) {
+    return full.slice(0, 1) + full.split('/')[1];
+  }
 
   static findUrl(data) {
     for (const {type, attributes: a} of data.included || []) {
@@ -255,32 +269,44 @@ class Cache {
    * @return {{url:String, data?:Object}|void}
    */
   static read(type, slug) {
-    const key = type + ':' + slug;
-    const [time, malTypeId] = (localStorage[key] || '').split(' ');
+    const key = Cache.key(type, slug);
+    const [time, malTID] = (localStorage[key] || '').split(' ');
 
-    if (!time || !malTypeId)
+    if (!time || !malTID)
       return;
 
-    const url = MAL_URL + malTypeId;
+    const url = MAL_URL + Mal.expandTypeId(malTID);
 
-    if (Date.now() - parseInt(time, 36) > CACHE_DURATION)
+    if (Date.now() - parseInt(time, 36) * 60e3 > CACHE_DURATION)
       return {url};
 
     try {
       return {
         url,
-        data: JSON.parse(localStorage[key + ':MAL']),
+        data: JSON.parse(localStorage[Cache.malKey(malTID)]),
       };
     } catch (e) {}
   }
 
-  static write(type, slug, malTypeId, data) {
+  static write(type, slug, malFullTypeId, data) {
+    const key = Cache.key(type, slug);
+    const malTID = Mal.shortenTypeId(malFullTypeId);
+    localStorage[key] = Math.floor(Date.now() / 60e3).toString(36) + ' ' + malTID;
+
+    const malKey = Cache.malKey(malTID);
     const dataStr = JSON.stringify(data);
-    if (dataStr === '{}')
-      return;
-    const key = type + ':' + slug;
-    localStorage[key] = Date.now().toString(36) + ' ' + malTypeId;
-    localStorage[key + ':MAL'] = dataStr;
+    if (dataStr !== '{}')
+      localStorage[malKey] = dataStr;
+    else
+      delete localStorage[malKey];
+  }
+
+  static key(type, slug) {
+    return `:${type.slice(0, 1)}:${slug}`;
+  }
+
+  static malKey(malTID) {
+    return ':MAL:' + malTID;
   }
 }
 
