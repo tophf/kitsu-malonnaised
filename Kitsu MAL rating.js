@@ -31,9 +31,6 @@ const RX_INTERCEPT = new RegExp(
 
 const SEL_READY_SIGN = 'meta[property="og:url"]';
 const SEL_RATING_CONTAINER = '.media-rating';
-const SEL_MAL_RATING = '[itemprop="ratingValue"],' +
-                       '[data-id="info1"] > span:not(.dark_text)';
-
 const ID_RATING = GM_info.script.name + ':rating';
 
 const HOUR = 3600e3;
@@ -55,7 +52,7 @@ class App {
     if (!data)
       App.expire();
     if (url && !data)
-      data = await Get.malData(url);
+      data = await Mal.scavenge(url);
     if (data)
       App.plant(Object.assign({url, type, slug}, data));
     else
@@ -72,7 +69,7 @@ class App {
   }
 
   static async cook(payload, type, slug) {
-    const url = App.findMalUrl(payload);
+    const url = Mal.findUrl(payload);
     if (!url)
       return;
     if (!type)
@@ -80,7 +77,7 @@ class App {
     let {data} = Cache.read(type, slug) || {};
     if (!data) {
       App.busy = true;
-      data = await Get.malData(url);
+      data = await Mal.scavenge(url);
       Cache.write(type, slug, url.slice(MAL_URL.length), data);
       App.busy = false;
     }
@@ -101,8 +98,11 @@ class App {
         Rating.hide();
     }
   }
+}
 
-  static findMalUrl(data) {
+class Mal {
+
+  static findUrl(data) {
     for (const {type, attributes: a} of data.included || []) {
       if (type === 'mappings' &&
           a.externalSite.startsWith('myanimelist')) {
@@ -111,6 +111,58 @@ class App {
         return MAL_URL + malType + '/' + malId;
       }
     }
+  }
+
+  static findImgIds(img) {
+    // https://cdn.myanimelist.net/r/23x32/images/characters/7/331067.webp?s=xxxxxxxxxx
+    const {src} = img.dataset;
+    return src && src.match(/\d+\/\d+\.\w+|$/)[0];
+  }
+
+  static findUrlIds(el) {
+    // https://myanimelist.net/character/101457/Chika_Kudou
+    const a = el.closest('a');
+    return a && a.href.match(/\d+\/[^/]+$|$/)[0];
+  }
+
+  static async scavenge(url) {
+    const doc = await Get.doc(url);
+    let el, rating, members, favs;
+
+    el = $('[itemprop="ratingValue"],' +
+           '[data-id="info1"] > span:not(.dark_text)', doc);
+    rating = $text(el).trim();
+    rating = rating && Number(rating.match(/[\d.]+|$/)[0]) || rating || undefined;
+
+    while (!members && !favs && (el = el.nextElementSibling)) {
+      const txt = el.textContent;
+      members = members || txt.match(/Members:\s*([\d,]+)|$/)[1];
+      favs = favs || txt.match(/Favorites:\s*([\d,]+)|$/)[1];
+    }
+
+    const chars = $$('.detail-characters-list table[width]', doc).map(el => {
+      const char = $('img', el);
+      const actor = $('a[href*="/people/"] img', el);
+      return [
+        char.alt,
+        Mal.findUrlIds(char),
+        Mal.findImgIds(char),
+        $text('small', el),
+      ].concat(actor && actor !== char && [
+        actor.alt,
+        Mal.findUrlIds(actor),
+        Mal.findImgIds(actor),
+      ] || []);
+    });
+
+    const recs = $$('#anime_recommendation .link', doc).map(a => [
+      $text('.title', a),
+      parseInt($text('.users', a)) || 0,
+      a.href.match(/\d+-\d+|$/)[0],
+      Mal.findImgIds($('img', a)),
+    ]);
+
+    return {rating, members, favs, chars, recs};
   }
 }
 
@@ -325,17 +377,14 @@ class Get {
       });
     });
   }
-
-  static async malData(url) {
-    const doc = await Get.doc(url);
-    let rating = $text(SEL_MAL_RATING, doc).trim();
-    rating = rating && Number(rating.match(/[\d.]+|$/)[0]) || rating || undefined;
-    return {rating};
-  }
 }
 
 function $(selector, node = document) {
-  return node && node.querySelector(selector);
+  return node.querySelector(selector);
+}
+
+function $$(selector, node = document) {
+  return [...node.querySelectorAll(selector)];
 }
 
 function $text(selector, node = document) {
