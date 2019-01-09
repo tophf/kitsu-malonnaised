@@ -27,6 +27,9 @@ const MAL_URL = 'https://myanimelist.net/';
 const SEL_READY_SIGN = 'meta[property="og:url"]';
 const SEL_RATING_CONTAINER = '.media-rating';
 
+const SEL_MAL_RATING = '[itemprop="ratingValue"],' +
+                       '[data-id="info1"] > span:not(.dark_text)';
+
 const RX_KITSU_TYPE_SLUG = /\/(anime|manga)\/([^/?#]+)(?:[?#].*)?$|$/;
 const RX_INTERCEPT = new RegExp(
   '^' + API_URL.replace(/\./g, '\\.') +
@@ -70,7 +73,8 @@ class App {
 
   static async plant(data = {}) {
     await Mutant.ogUrl(data);
-    Rating.render(data);
+    if (data.rating !== undefined)
+      Rating.render(data);
     App.busy = false;
   }
 
@@ -124,32 +128,31 @@ class Rating {
 
   static render({rating, url}) {
     const parent = $(SEL_RATING_CONTAINER);
-    $create('span', {
+    const quarter = rating > 0 && Math.max(1, Math.min(4, 1 + (rating - .001) / 2.5 >> 0));
+    const el = $create('a', {
       id: Rating.id,
       className: [
         'media-community-rating',
-        'percent-quarter-' + Math.max(1, Math.min(4, 1 + (rating - .001) / 2.5 >> 0)),
+        quarter ? 'percent-quarter-' + quarter : '',
       ].join(' '),
+      textContent: `${
+        rating > 0 ?
+          (rating * 10).toFixed(2).replace(/\.?0+$/, '') + '%' :
+          rating
+        } on MAL`,
+      href: url,
       style: [
-        parent.firstElementChild ? 'margin-left: 1em' : '',
         'transition: opacity .5s',
         'opacity: 1',
       ].join(';'),
-      children: [
-        $create('a', {
-          textContent: (rating * 10).toFixed(2).replace(/\.?0+$/, '') + '% on MAL',
-          href: url,
-          rel: 'noopener noreferrer',
-          target: '_blank',
-          style: [
-            'color: inherit',
-            'font-family: inherit',
-          ].join(';'),
-        }),
-      ],
+      rel: 'noopener noreferrer',
+      target: '_blank',
       parent,
     });
-    // setTimeout(() => el.style.removeProperty('opacity'));
+    if (el.previousElementSibling)
+      el.style.setProperty('margin-left', '1em');
+    else
+      el.style.removeProperty('margin-left');
   }
 }
 
@@ -232,9 +235,12 @@ class Cache {
   }
 
   static write(type, slug, malTypeId, data) {
+    const dataStr = JSON.stringify(data);
+    if (dataStr === '{}')
+      return;
     const key = type + ':' + slug;
     localStorage[key] = Date.now().toString(36) + ' ' + malTypeId;
-    localStorage[key + ':MAL'] = JSON.stringify(data);
+    localStorage[key + ':MAL'] = dataStr;
   }
 }
 
@@ -334,7 +340,8 @@ class Get {
 
   static async malData(url) {
     const doc = await Get.doc(url);
-    const rating = Number($text('[itemprop="ratingValue"]', doc).match(/[\d.]+|$/)[0]);
+    let rating = $text(SEL_MAL_RATING, doc).trim();
+    rating = rating && Number(rating.match(/[\d.]+|$/)[0]) || rating || undefined;
     return {rating};
   }
 }
