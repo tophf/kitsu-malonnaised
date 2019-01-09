@@ -23,7 +23,7 @@
 
 const API_URL = 'https://kitsu.io/api/edge/';
 const MAL_URL = 'https://myanimelist.net/';
-const RX_KITSU_TYPE_SLUG = /\/(anime|manga)\/([^/]+)|$/;
+const RX_KITSU_TYPE_SLUG = /\/(anime|manga)\/([^/?#]+)(?:[?#].*)?$|$/;
 const RX_INTERCEPT = new RegExp(
   '^' + API_URL.replace(/\./g, '\\.') +
   '(anime|manga)\\?.*?&include=');
@@ -31,30 +31,31 @@ const HOUR = 3600e3;
 const CACHE_DURATION = 4 * HOUR;
 
 async function main() {
-  new XHRInterceptor().subscribe(data => processMappings(data)/*.then(plant)*/);
+  new XHRInterceptor().subscribe(data => process(data).then(plant));
   new HistoryInterceptor().subscribe((state, title, url) => onUrlChange(url));
   addEventListener('popstate', () => onUrlChange());
   onUrlChange();
 }
 
 async function onUrlChange(path = location.pathname) {
-  const [, type, slug] = path.match(RX_KITSU_TYPE_SLUG);
+  const [type, slug] = TypeSlug.fromUrl(path);
   if (!slug)
     return;
   let {url, data} = Cache.read(type, slug) || {};
+  if (!data && document.getElementById(Rating.id)) {
+    await Observe.byTitle();
+    Rating.remove();
+  }
   if (url && !data)
-    data = await fetchMalData(url);
+    data = await Get.malData(url);
   if (!data)
-    data = await processMappings(await fetchMappings(type, slug), type, slug);
-  if (!data)
-    return;
-  if (!data.url)
-    data.url = url;
-  plant(data);
+    data = await process(await inquire(type, slug), type, slug);
+  if (data)
+    plant(Object.assign({url, type, slug}, data));
 }
 
-function fetchMappings(type, slug) {
-  return fetchJson(API_URL + type + '?' + [
+function inquire(type, slug) {
+  return Get.json(API_URL + type + '?' + [
     'filter[slug]=' + slug,
     'include=mappings',
     'fields[mappings]=externalSite,externalId',
@@ -62,7 +63,28 @@ function fetchMappings(type, slug) {
   ].join('&'));
 }
 
-function getMalUrl(data) {
+async function process(payload, type, slug) {
+  const url = findMalUrl(payload);
+  if (!url)
+    return;
+  if (!type)
+    ({type, attributes: {slug}} = payload.data[0]);
+  let {data} = Cache.read(type, slug) || {};
+  if (!data) {
+    data = await Get.malData(url);
+    Cache.write(type, slug, url.slice(MAL_URL.length), data);
+  }
+  return Object.assign({type, slug, url}, data);
+}
+
+async function plant(data = {}) {
+  if (!location.pathname === TypeSlug.toPath(data))
+    return;
+  await Observe.byTitle();
+  Rating.render(data);
+}
+
+function findMalUrl(data) {
   for (const {type, attributes: a} of data.included || []) {
     if (type === 'mappings' &&
         a.externalSite.startsWith('myanimelist')) {
@@ -71,35 +93,6 @@ function getMalUrl(data) {
       return MAL_URL + malType + '/' + malId;
     }
   }
-}
-
-async function fetchMalData(url) {
-  Rating.remove();
-  const doc = await getDoc(url);
-  const rating = Number($text('[itemprop="ratingValue"]', doc).match(/[\d.]+|$/)[0]);
-  return {rating};
-}
-
-async function processMappings(payload, type, slug) {
-  const url = getMalUrl(payload);
-  if (!url)
-    return;
-  if (!type)
-    ({type, attributes: {slug}} = payload.data[0]);
-  let {data} = Cache.read(type, slug) || {};
-  if (!data) {
-    data = await fetchMalData(url);
-    Cache.write(type, slug, url.slice(MAL_URL.length), data);
-  }
-  data.url = url;
-  return data;
-}
-
-function plant(data = {}) {
-  if (data.rating)
-    Rating.render(data);
-  else
-    Rating.remove();
 }
 
 class Rating {
@@ -111,17 +104,22 @@ class Rating {
     if (el)
       el.remove();
   }
-  static render({url, rating}) {
-    const el = $create('span', {
+  static render(data) {
+    Rating.data = data;
+    Rating._attach($('.media-rating'));
+  }
+  static _attach(parent) {
+    const {rating, url} = Rating.data;
+    $create('span', {
       id: Rating.id,
       className: [
         'media-community-rating',
         'percent-quarter-' + Math.max(1, Math.min(4, 1 + (rating - .001) / 2.5 >> 0)),
       ].join(' '),
       style: [
-        'margin-left: 2em',
-        // 'opacity: 0',
+        parent.firstElementChild ? 'margin-left: 1em' : '',
         'transition: opacity .5s',
+        // 'opacity: 0',
       ].join(';'),
       children: [
         $create('a', {
@@ -135,8 +133,8 @@ class Rating {
           ].join(';'),
         }),
       ],
+      parent,
     });
-    $appears({cls: 'media-rating'}).then(parent => parent.appendChild(el));
     // setTimeout(() => el.style.removeProperty('opacity'));
   }
 }
@@ -225,31 +223,126 @@ class Cache {
   }
 }
 
-function fetchJson(url) {
-  return new Promise(resolve => {
-    GM_xmlhttpRequest({
-      url,
-      method: 'GET',
-      responseType: 'json',
-      headers: {
-        'Accept': 'application/vnd.api+json',
-      },
-      onload: r => resolve(r.response),
-    });
-  });
+class TypeSlug {
+  static fromUrl(url = location.pathname) {
+    const m = url.match(RX_KITSU_TYPE_SLUG);
+    return m ? m.slice(1) : [];
+  }
+  static toPath({type, slug}) {
+    return `/${type}/${slug}`;
+  }
 }
 
-function getDoc(url) {
-  return new Promise(resolve => {
-    GM_xmlhttpRequest({
-      url,
-      method: 'GET',
-      onload(r) {
-        const doc = new DOMParser().parseFromString(r.response, 'text/html');
-        resolve(doc);
+class Get {
+
+  static json(url) {
+    return new Promise(resolve => {
+      GM_xmlhttpRequest({
+        url,
+        method: 'GET',
+        responseType: 'json',
+        headers: {
+          'Accept': 'application/vnd.api+json',
+        },
+        onload: r => resolve(r.response),
+      });
+    });
+  }
+
+  static doc(url) {
+    return new Promise(resolve => {
+      GM_xmlhttpRequest({
+        url,
+        method: 'GET',
+        onload(r) {
+          const doc = new DOMParser().parseFromString(r.response, 'text/html');
+          resolve(doc);
+        },
+      });
+    });
+  }
+
+  static async malData(url) {
+    const doc = await Get.doc(url);
+    const rating = Number($text('[itemprop="ratingValue"]', doc).match(/[\d.]+|$/)[0]);
+    return {rating};
+  }
+}
+
+class Observe {
+
+  static byTitle() {
+    const state = Observe._title || Observe._initTitle();
+    return new Promise(state.subscribe);
+  }
+
+  static byClass(cls) {
+    const collection = document.getElementsByClassName(cls);
+    const el = collection[0];
+    if (el)
+      return Promise.resolve(el);
+    const state = Observe._elements || Observe._initElements();
+    state.collection = collection;
+    return new Promise(state.subscribe);
+  }
+
+  static _init({node, options, onMutation}) {
+    const state = {
+      active: false,
+      subscribers: new Set(),
+      observer: new MutationObserver(onMutation),
+      node: node || document,
+      options: options || {
+        childList: true,
+        subtree: true,
+      },
+      start() {
+        state.observer.observe(state.node, state.options);
+        state.observer.active = true;
+      },
+      resolve() {
+        state.observer.disconnect();
+        state.observer.active = false;
+        state.subscribers.forEach(fn => fn.apply(this, arguments));
+        state.subscribers.clear();
+      },
+      subscribe(fn) {
+        state.subscribers.add(fn);
+        if (!state.active)
+          state.start();
+      },
+    };
+    return state;
+  }
+
+  static _initElements() {
+    const state = Observe._elements = Observe._init({
+      onMutation() {
+        var el = state.collection[0];
+        if (el)
+          state.resolve(el);
       },
     });
-  });
+    return state;
+  }
+
+  static _initTitle() {
+    const state = Observe._title = Observe._init({
+      node: document.head,
+      options: {childList: true},
+      onMutation(mm) {
+        for (var i = 0, m; (m = mm[i++]);) {
+          for (var j = 0, added = m.addedNodes, n; (n = added[j++]);) {
+            if (n.localName === 'title') {
+              state.resolve();
+              return;
+            }
+          }
+        }
+      },
+    });
+    return state;
+  }
 }
 
 function $(selector, node = document) {
@@ -279,7 +372,7 @@ function $create(tag, props) {
           el.append(...v);
         else
           el.append(v);
-        break;
+        continue;
       case 'parent':
         parent = v;
         continue;
@@ -301,24 +394,6 @@ function $create(tag, props) {
   if (after && after !== el.previousSibling)
     after.insertAdjacentElement('aftereend', el);
   return el;
-}
-
-function $appears({cls}) {
-  const byClass = document.getElementsByClassName(cls);
-  return Promise.resolve(
-    byClass[0] ||
-    new Promise(resolve => {
-      new MutationObserver((mutations, observer) => {
-        var el = byClass[0];
-        if (el) {
-          observer.disconnect();
-          resolve(el);
-        }
-      }).observe(document, {
-        childList: true,
-        subtree: true,
-      });
-    }));
 }
 
 main();
