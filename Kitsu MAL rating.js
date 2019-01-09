@@ -23,93 +23,107 @@
 
 const API_URL = 'https://kitsu.io/api/edge/';
 const MAL_URL = 'https://myanimelist.net/';
+
+const SEL_READY_SIGN = 'meta[property="og:url"]';
+const SEL_RATING_CONTAINER = '.media-rating';
+
 const RX_KITSU_TYPE_SLUG = /\/(anime|manga)\/([^/?#]+)(?:[?#].*)?$|$/;
 const RX_INTERCEPT = new RegExp(
   '^' + API_URL.replace(/\./g, '\\.') +
   '(anime|manga)\\?.*?&include=');
+
 const HOUR = 3600e3;
 const CACHE_DURATION = 4 * HOUR;
 
-async function main() {
-  new XHRInterceptor().subscribe(data => process(data).then(plant));
-  new HistoryInterceptor().subscribe((state, title, url) => onUrlChange(url));
-  addEventListener('popstate', () => onUrlChange());
-  onUrlChange();
-}
-
-async function onUrlChange(path = location.pathname) {
-  const [type, slug] = TypeSlug.fromUrl(path);
-  if (!slug)
-    return;
-  let {url, data} = Cache.read(type, slug) || {};
-  if (!data && document.getElementById(Rating.id)) {
-    await Observe.byTitle();
-    Rating.remove();
+class App {
+  static async init() {
+    new XHRInterceptor().subscribe(App.cook);
+    new HistoryInterceptor().subscribe(App.onUrlChange);
+    window.addEventListener('popstate', () => App.onUrlChange());
+    App.onUrlChange();
   }
-  if (url && !data)
-    data = await Get.malData(url);
-  if (!data)
-    data = await process(await inquire(type, slug), type, slug);
-  if (data)
-    plant(Object.assign({url, type, slug}, data));
-}
 
-function inquire(type, slug) {
-  return Get.json(API_URL + type + '?' + [
-    'filter[slug]=' + slug,
-    'include=mappings',
-    'fields[mappings]=externalSite,externalId',
-    'fields[anime]=id,type,slug',
-  ].join('&'));
-}
-
-async function process(payload, type, slug) {
-  const url = findMalUrl(payload);
-  if (!url)
-    return;
-  if (!type)
-    ({type, attributes: {slug}} = payload.data[0]);
-  let {data} = Cache.read(type, slug) || {};
-  if (!data) {
-    data = await Get.malData(url);
-    Cache.write(type, slug, url.slice(MAL_URL.length), data);
+  static inquire(type, slug) {
+    return Get.json(API_URL + type + '?' + [
+      'filter[slug]=' + slug,
+      'include=mappings',
+      'fields[mappings]=externalSite,externalId',
+      'fields[anime]=id,type,slug',
+    ].join('&'));
   }
-  return Object.assign({type, slug, url}, data);
-}
 
-async function plant(data = {}) {
-  if (!location.pathname === TypeSlug.toPath(data))
-    return;
-  await Observe.byTitle();
-  Rating.render(data);
-}
-
-function findMalUrl(data) {
-  for (const {type, attributes: a} of data.included || []) {
-    if (type === 'mappings' &&
-        a.externalSite.startsWith('myanimelist')) {
-      const malType = a.externalSite.split('/')[1];
-      const malId = a.externalId;
-      return MAL_URL + malType + '/' + malId;
+  static async cook(payload, type, slug) {
+    const url = App.findMalUrl(payload);
+    if (!url)
+      return;
+    if (!type)
+      ({type, attributes: {slug}} = payload.data[0]);
+    let {data} = Cache.read(type, slug) || {};
+    if (!data) {
+      App.busy = true;
+      data = await Get.malData(url);
+      Cache.write(type, slug, url.slice(MAL_URL.length), data);
+      App.busy = false;
     }
+    App.plant(Object.assign({type, slug, url}, data));
+  }
+
+  static async plant(data = {}) {
+    await Mutant.ogUrl(data);
+    Rating.render(data);
+    App.busy = false;
+  }
+
+  static async expire() {
+    const shown = Boolean(document.getElementById(Rating.id));
+    if (!shown)
+      return;
+    await new Promise(setTimeout);
+    if (App.busy)
+      Rating.hide();
+  }
+
+  static findMalUrl(data) {
+    for (const {type, attributes: a} of data.included || []) {
+      if (type === 'mappings' &&
+          a.externalSite.startsWith('myanimelist')) {
+        const malType = a.externalSite.split('/')[1];
+        const malId = a.externalId;
+        return MAL_URL + malType + '/' + malId;
+      }
+    }
+  }
+
+  static async onUrlChange(path = location.pathname) {
+    const [type, slug] = TypeSlug.fromUrl(path);
+    if (!slug)
+      return;
+    let {url, data} = Cache.read(type, slug) || {};
+    if (!data)
+      App.expire();
+    if (url && !data)
+      data = await Get.malData(url);
+    if (data)
+      App.plant(Object.assign({url, type, slug}, data));
+    else
+      await App.cook(await App.inquire(type, slug), type, slug);
   }
 }
 
 class Rating {
+
   static get id() {
     return GM_info.script.name + ':rating';
   }
-  static remove() {
+
+  static hide() {
     const el = document.getElementById(Rating.id);
     if (el)
-      el.remove();
+      el.style.opacity = '0';
   }
-  static render(data) {
-    Rating.data = data;
-    Rating._attach($('.media-rating'));
-  }
-  static _attach(parent) {
-    const {rating, url} = Rating.data;
+
+  static render({rating, url}) {
+    const parent = $(SEL_RATING_CONTAINER);
     $create('span', {
       id: Rating.id,
       className: [
@@ -119,7 +133,7 @@ class Rating {
       style: [
         parent.firstElementChild ? 'margin-left: 1em' : '',
         'transition: opacity .5s',
-        // 'opacity: 0',
+        'opacity: 1',
       ].join(';'),
       children: [
         $create('a', {
@@ -148,6 +162,7 @@ class Interceptor {
       return original.apply(this, augmentedArgs || arguments);
     }, unsafeWindow);
   }
+
   subscribe(fn) {
     this._subscribers.add(fn);
   }
@@ -224,12 +239,67 @@ class Cache {
 }
 
 class TypeSlug {
+
   static fromUrl(url = location.pathname) {
     const m = url.match(RX_KITSU_TYPE_SLUG);
     return m ? m.slice(1) : [];
   }
-  static toPath({type, slug}) {
-    return `/${type}/${slug}`;
+
+  static toUrl({type, slug}) {
+    return `${location.origin}/${type}/${slug}`;
+  }
+}
+
+class Mutant {
+
+  static ogUrl(data) {
+    const url = TypeSlug.toUrl(data);
+    const el = $(SEL_READY_SIGN);
+    if (el && el.content === url)
+      return Promise.resolve();
+    if (!Mutant._state)
+      Mutant._init();
+    Mutant._state.url = url;
+    return new Promise(Mutant.subscribe);
+  }
+
+  static subscribe(fn) {
+    Mutant._state.subscribers.add(fn);
+    if (!Mutant._state.active)
+      Mutant._start();
+  }
+
+  static _init() {
+    Mutant._state = {
+      active: false,
+      subscribers: new Set(),
+      observer: new MutationObserver(Mutant._observer),
+      url: '',
+    };
+  }
+
+  static _start() {
+    Mutant._state.observer.observe(document.head, {childList: true});
+    Mutant._state.observer.active = true;
+  }
+
+  static _resolve() {
+    Mutant._state.observer.disconnect();
+    Mutant._state.observer.active = false;
+    Mutant._state.subscribers.forEach(fn => fn.apply(null, arguments));
+    Mutant._state.subscribers.clear();
+  }
+
+  static _observer(mm) {
+    for (var i = 0, m; (m = mm[i++]);) {
+      for (var j = 0, added = m.addedNodes, n; (n = added[j++]);) {
+        if (n.localName === 'meta' &&
+            n.content === Mutant._state.url) {
+          Mutant._resolve();
+          return;
+        }
+      }
+    }
   }
 }
 
@@ -266,82 +336,6 @@ class Get {
     const doc = await Get.doc(url);
     const rating = Number($text('[itemprop="ratingValue"]', doc).match(/[\d.]+|$/)[0]);
     return {rating};
-  }
-}
-
-class Observe {
-
-  static byTitle() {
-    const state = Observe._title || Observe._initTitle();
-    return new Promise(state.subscribe);
-  }
-
-  static byClass(cls) {
-    const collection = document.getElementsByClassName(cls);
-    const el = collection[0];
-    if (el)
-      return Promise.resolve(el);
-    const state = Observe._elements || Observe._initElements();
-    state.collection = collection;
-    return new Promise(state.subscribe);
-  }
-
-  static _init({node, options, onMutation}) {
-    const state = {
-      active: false,
-      subscribers: new Set(),
-      observer: new MutationObserver(onMutation),
-      node: node || document,
-      options: options || {
-        childList: true,
-        subtree: true,
-      },
-      start() {
-        state.observer.observe(state.node, state.options);
-        state.observer.active = true;
-      },
-      resolve() {
-        state.observer.disconnect();
-        state.observer.active = false;
-        state.subscribers.forEach(fn => fn.apply(this, arguments));
-        state.subscribers.clear();
-      },
-      subscribe(fn) {
-        state.subscribers.add(fn);
-        if (!state.active)
-          state.start();
-      },
-    };
-    return state;
-  }
-
-  static _initElements() {
-    const state = Observe._elements = Observe._init({
-      onMutation() {
-        var el = state.collection[0];
-        if (el)
-          state.resolve(el);
-      },
-    });
-    return state;
-  }
-
-  static _initTitle() {
-    const state = Observe._title = Observe._init({
-      node: document.head,
-      options: {childList: true},
-      onMutation(mm) {
-        for (var i = 0, m; (m = mm[i++]);) {
-          for (var j = 0, added = m.addedNodes, n; (n = added[j++]);) {
-            if (n.localName === 'title') {
-              state.resolve();
-              return;
-            }
-          }
-        }
-      },
-    });
-    return state;
   }
 }
 
@@ -396,4 +390,4 @@ function $create(tag, props) {
   return el;
 }
 
-main();
+App.init();
