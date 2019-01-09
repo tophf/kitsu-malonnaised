@@ -24,6 +24,7 @@
 
 const API_URL = 'https://kitsu.io/api/edge/';
 const MAL_URL = 'https://myanimelist.net/';
+const MAL_CDN_URL = 'https://cdn.myanimelist.net/';
 
 const RX_KITSU_TYPE_SLUG = /\/(anime|manga)\/([^/?#]+)(?:[?#].*)?$|$/;
 const RX_INTERCEPT = new RegExp(
@@ -37,6 +38,7 @@ const ID = (me => ({
   RATING: `${me}:RATING`,
   MEMBERS: `${me}:MEMBERS`,
   FAVS: `${me}:FAVS`,
+  CHARS: `${me}:CHARS`,
 }))(GM_info.script.name);
 
 const HOUR = 3600e3;
@@ -67,6 +69,37 @@ class App {
       #FAVS::before {
         content: '\\2764';
         margin-right: .25em;
+      }
+
+      .media--sidebar .is-sticky {
+        position: static !important;
+      }
+      #CHARS a {
+        width: 50%;
+      }
+      #CHARS a[href*="/people/"] {
+        opacity: .5;
+        will-change: opacity;
+        transition: opacity .25s .1s;
+      }
+      #CHARS a[href*="/people/"] img {
+        opacity: .3;
+        will-change: opacity;
+        transition: opacity .25s .1s;
+      }
+      #CHARS a[href*="/people/"]:hover,
+      #CHARS a[href*="/people/"] img:hover {
+        opacity: 1;
+      }
+      #CHARS a:first-child {
+        font-weight: bold;
+      }
+      #CHARS a[href*="/people/"]:only-child,
+      #CHARS img {
+        width: 100%;
+      }
+      #CHARS p {
+        height: 33%;
       }
     `.replace(
       /#([A-Z]+)/g,
@@ -117,6 +150,7 @@ class App {
     await Mutant.ogUrl(data);
     Render.rating(data);
     Render.users(data);
+    Render.characters(data);
     App.busy = false;
   }
 
@@ -264,6 +298,20 @@ class Mal {
     return str && Number(str.replace(/,/g, '')) || undefined;
   }
 
+  static decodeHtml(str) {
+    if (str.includes('&#')) {
+      str = str.replace(/&#(x?)([\da-f]);/gi, (_, hex, code) =>
+        String.fromCharCode(parseInt(code, hex ? 16 : 10)));
+    }
+    if (!str.includes('&') ||
+        !/&\w+;/.test(str))
+      return str;
+    if (!Mal.parser)
+      Mal.parser = new DOMParser();
+    const doc = Mal.parser.parseFromString(str, 'text/html');
+    return doc.body.firstChild.textContent;
+  }
+
   static async scavenge(url) {
     const doc = await Get.doc(url);
     let el, rating, members, favs;
@@ -277,26 +325,24 @@ class Mal {
       Mal.str2num($text('[itemprop="ratingCount"]', doc)),
     ];
 
-    while (el.parentElement &&
-           !el.parentElement.textContent.includes('Members:'))
+    while (el.parentElement && !el.parentElement.textContent.includes('Members:'))
       el = el.parentElement;
-    while ((!members || !favs) &&
-           (el = el.nextElementSibling)) {
+    while ((!members || !favs) && (el = el.nextElementSibling)) {
       const txt = el.textContent;
       members = members || Mal.str2num(txt.match(/Members:\s*([\d,]+)|$/)[1]);
       favs = favs || Mal.str2num(txt.match(/Favorites:\s*([\d,]+)|$/)[1]);
     }
 
     const chars = $$('.detail-characters-list table[width]', doc).map(el => {
-      const char = $('img', el);
+      const char = $('a[href*="/character/"] img', el);
       const actor = $('a[href*="/people/"] img', el);
       return [
-        char.alt,
-        Mal.findUrlIds(char),
-        Mal.findImgIds(char),
+        char ? Mal.decodeHtml(char.alt) : 0,
+        char ? Mal.findUrlIds(char) : 0,
+        char ? Mal.findImgIds(char) : 0,
         $text('small', el),
-      ].concat(actor && actor !== char && [
-        actor.alt,
+      ].concat(actor && [
+        Mal.decodeHtml(actor.alt),
         Mal.findUrlIds(actor),
         Mal.findImgIds(actor),
       ] || []);
@@ -433,15 +479,14 @@ class Render {
   static rating({rating: [r, count] = ['N/A'], url} = {}) {
     const quarter = r > 0 && Math.max(1, Math.min(4, 1 + (r - .001) / 2.5 >> 0));
     const str = (r > 0 ? (r * 10).toFixed(2).replace(/\.?0+$/, '') + '%' : r) + ' on MAL';
-    $create('a', {
+    $createLink({
       textContent: str,
       title: count && `Scored by ${Render.num2str(count)} users` || '',
       href: url,
       id: ID.RATING,
       parent: $(SEL_RATING_CONTAINER),
       className: 'media-community-rating' + (quarter ? ' percent-quarter-' + quarter : ''),
-      rel: 'noopener noreferrer',
-      target: '_blank',
+      style: '',
     });
   }
 
@@ -458,6 +503,41 @@ class Render {
       textContent: Render.num2str(favs),
       style: favs ? '' : 'opacity:0',
     });
+  }
+
+  static characters({chars}) {
+    $create('section', {
+      id: ID.CHARS,
+      parent: $('.media-summary'),
+      className: 'media--related',
+      style: chars ? '' : 'opacity:0',
+    }, [
+      $create('div', {className: 'related-media-panel'}, [
+        $create('h5', {textContent: 'Characters on MAL'}),
+        $create('ul',
+          chars.map(([name, urlId, imgId, type, actor, actorUrlId, actorImgId]) =>
+            $create('li', [
+              name &&
+              $createLink({href: MAL_URL + 'character/' + urlId}, [
+                imgId ?
+                  $create('img', {
+                    src: MAL_CDN_URL + 'images/characters/' + imgId.replace('.jpg', '.webp'),
+                  }) :
+                  $create('p'),
+                $create('div', name),
+                $create('small', type),
+              ]),
+              actor &&
+              $createLink({href: MAL_URL + 'people/' + actorUrlId}, [
+                actorImgId && $create('img', {src: MAL_CDN_URL + 'images/voiceactors/' + actorImgId}),
+                $create('div', actor),
+                !name && $create('small', type),
+              ]),
+            ])
+          )
+        ),
+      ]),
+    ]);
   }
 }
 
@@ -487,8 +567,16 @@ function $$(selector, node = document) {
   return [...node.querySelectorAll(selector)];
 }
 
-function $create(tag, props) {
+function $create(tag, props = {}, children = props.children) {
   let parent, after, before;
+  if (!children && (
+    props instanceof Node ||
+    typeof props !== 'object' ||
+    Array.isArray(props)
+  )) {
+    children = props;
+    props = {};
+  }
   const el = props.id && $id(props.id) || document.createElement(tag);
   const hasOwnProperty = Object.hasOwnProperty;
   for (const k in props) {
@@ -497,12 +585,6 @@ function $create(tag, props) {
     const v = props[k];
     switch (k) {
       case 'children':
-        if (el.firstChild)
-          el.textContent = '';
-        if (Symbol.iterator in v && typeof v !== 'string')
-          el.append(...v);
-        else
-          el.append(v);
         continue;
       case 'parent':
         parent = v;
@@ -513,10 +595,22 @@ function $create(tag, props) {
       case 'before':
         before = v;
         continue;
+      case 'style':
+        if (el.getAttribute('style') !== v)
+          el.setAttribute('style', v);
+        continue;
       default:
         if (el[k] !== v)
           el[k] = v;
     }
+  }
+  if (children) {
+    if (el.firstChild)
+      el.textContent = '';
+    if (typeof children !== 'string' && Symbol.iterator in children)
+      el.append(...children.filter(Boolean));
+    else
+      el.append(children);
   }
   if (parent && parent !== el.parentNode)
     parent.appendChild(el);
@@ -525,6 +619,13 @@ function $create(tag, props) {
   if (after && after !== el.previousSibling)
     after.insertAdjacentElement('afterEnd', el);
   return el;
+}
+
+function $createLink(props, children) {
+  return $create('a', Object.assign(props, {
+    rel: 'noopener noreferrer',
+    target: '_blank',
+  }), children);
 }
 
 function $text(selector, node = document) {
