@@ -24,16 +24,17 @@
 const API_URL = 'https://kitsu.io/api/edge/';
 const MAL_URL = 'https://myanimelist.net/';
 
-const SEL_READY_SIGN = 'meta[property="og:url"]';
-const SEL_RATING_CONTAINER = '.media-rating';
-
-const SEL_MAL_RATING = '[itemprop="ratingValue"],' +
-                       '[data-id="info1"] > span:not(.dark_text)';
-
 const RX_KITSU_TYPE_SLUG = /\/(anime|manga)\/([^/?#]+)(?:[?#].*)?$|$/;
 const RX_INTERCEPT = new RegExp(
   '^' + API_URL.replace(/\./g, '\\.') +
   '(anime|manga)\\?.*?&include=');
+
+const SEL_READY_SIGN = 'meta[property="og:url"]';
+const SEL_RATING_CONTAINER = '.media-rating';
+const SEL_MAL_RATING = '[itemprop="ratingValue"],' +
+                       '[data-id="info1"] > span:not(.dark_text)';
+
+const ID_RATING = GM_info.script.name + ':rating';
 
 const HOUR = 3600e3;
 const CACHE_DURATION = 4 * HOUR;
@@ -44,6 +45,21 @@ class App {
     new HistoryInterceptor().subscribe(App.onUrlChange);
     window.addEventListener('popstate', () => App.onUrlChange());
     App.onUrlChange();
+  }
+
+  static async onUrlChange(path = location.pathname) {
+    const [type, slug] = TypeSlug.fromUrl(path);
+    if (!slug)
+      return;
+    let {url, data} = Cache.read(type, slug) || {};
+    if (!data)
+      App.expire();
+    if (url && !data)
+      data = await Get.malData(url);
+    if (data)
+      App.plant(Object.assign({url, type, slug}, data));
+    else
+      await App.cook(await App.inquire(type, slug), type, slug);
   }
 
   static inquire(type, slug) {
@@ -79,12 +95,11 @@ class App {
   }
 
   static async expire() {
-    const shown = Boolean(document.getElementById(Rating.id));
-    if (!shown)
-      return;
-    await new Promise(setTimeout);
-    if (App.busy)
-      Rating.hide();
+    if (document.getElementById(ID_RATING)) {
+      await new Promise(setTimeout);
+      if (App.busy)
+        Rating.hide();
+    }
   }
 
   static findMalUrl(data) {
@@ -97,54 +112,26 @@ class App {
       }
     }
   }
-
-  static async onUrlChange(path = location.pathname) {
-    const [type, slug] = TypeSlug.fromUrl(path);
-    if (!slug)
-      return;
-    let {url, data} = Cache.read(type, slug) || {};
-    if (!data)
-      App.expire();
-    if (url && !data)
-      data = await Get.malData(url);
-    if (data)
-      App.plant(Object.assign({url, type, slug}, data));
-    else
-      await App.cook(await App.inquire(type, slug), type, slug);
-  }
 }
 
 class Rating {
 
-  static get id() {
-    return GM_info.script.name + ':rating';
-  }
-
   static hide() {
-    const el = document.getElementById(Rating.id);
+    const el = document.getElementById(ID_RATING);
     if (el)
       el.style.opacity = '0';
   }
 
-  static render({rating, url}) {
+  static render({rating: r, url}) {
     const parent = $(SEL_RATING_CONTAINER);
-    const quarter = rating > 0 && Math.max(1, Math.min(4, 1 + (rating - .001) / 2.5 >> 0));
+    const quarter = r > 0 && Math.max(1, Math.min(4, 1 + (r - .001) / 2.5 >> 0));
+    const textContent = (r > 0 ? (r * 10).toFixed(2).replace(/\.?0+$/, '') + '%' : r) + ' on MAL';
     const el = $create('a', {
-      id: Rating.id,
-      className: [
-        'media-community-rating',
-        quarter ? 'percent-quarter-' + quarter : '',
-      ].join(' '),
-      textContent: `${
-        rating > 0 ?
-          (rating * 10).toFixed(2).replace(/\.?0+$/, '') + '%' :
-          rating
-        } on MAL`,
+      textContent,
       href: url,
-      style: [
-        'transition: opacity .5s',
-        'opacity: 1',
-      ].join(';'),
+      id: ID_RATING,
+      className: 'media-community-rating' + (quarter ? 'percent-quarter-' + quarter : ''),
+      style: 'transition: opacity 1s; opacity: 1',
       rel: 'noopener noreferrer',
       target: '_blank',
       parent,
@@ -186,6 +173,7 @@ class XHRInterceptor extends Interceptor {
     super('XMLHttpRequest', 'open', function (method, url, ...args) {
       if (/^get$/i.test(method) &&
           RX_INTERCEPT.test(url)) {
+        App.expire();
         this.addEventListener('load', e => self._onload(e), {once: true});
         url = XHRInterceptor._augment(url);
         return [method, url, ...args];
