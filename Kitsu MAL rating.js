@@ -38,6 +38,7 @@ const SEL_READY_SIGN = 'meta[property="og:url"]';
 const SEL_RATING_CONTAINER = '.media-rating';
 
 const ID = (me => ({
+  BASE: me,
   SCORE: `${me}:SCORE`,
   USERS: `${me}:USERS`,
   FAVS: `${me}:FAVS`,
@@ -65,11 +66,12 @@ class App {
 
     // language=CSS
     GM_addStyle(`
-      [id^="${GM_info.script.name}:"] a:hover {
+      #SCORE:hover,
+      [id^="${CSS.escape(ID.BASE)}:"] a:hover {
         text-decoration: underline;
       }
       ${Object.keys(ID).map(id => '#' + id).join(',')} {
-        transition: opacity .5s;
+        transition: opacity .25s;
       }
       #SCORE:not(:first-child),
       #USERS,
@@ -84,7 +86,6 @@ class App {
         content: '\\2764';
         margin-right: .25em;
       }
-
       .media--sidebar .is-sticky {
         position: static !important;
       }
@@ -106,6 +107,9 @@ class App {
         opacity: .3;
         will-change: opacity;
         transition: opacity .25s .1s;
+      }
+      #CHARS:hover a[href*="/people/"] img {
+        opacity: .6;
       }
       #CHARS a[href*="/people/"]:hover,
       #CHARS a[href*="/people/"] img:hover {
@@ -133,7 +137,7 @@ class App {
       return;
     let {url, data} = Cache.read(type, slug) || {};
     if (!data)
-      App.expire();
+      App.hide();
     if (url && !data)
       data = await Mal.scavenge(url);
     if (data)
@@ -173,19 +177,14 @@ class App {
     App.busy = false;
   }
 
-  static async expire() {
-    const elements = [
-      $id(ID.SCORE),
-    ];
-    if (!elements.length)
+  static async hide() {
+    if (!$id(ID.SCORE))
       return;
     await Util.nextTick();
     if (!App.busy)
       return;
-    for (const el of elements) {
-      if (document.contains(el))
-        el.style.setProperty('opacity', '0');
-    }
+    for (const el of $$(`[id^="${CSS.escape(ID.BASE)}:"]`))
+      el.style.setProperty('opacity', '0');
   }
 }
 
@@ -427,7 +426,7 @@ class InterceptXHR extends Intercept {
     super('XMLHttpRequest', 'open', function (method, url, ...args) {
       if (/^get$/i.test(method) &&
           RX_INTERCEPT.test(url)) {
-        App.expire();
+        App.hide();
         this.addEventListener('load', e => self.onload(e), {once: true});
         url = InterceptXHR.augment(url);
         return [method, url, ...args];
@@ -637,8 +636,14 @@ function $$(selector, node = document) {
   return [...node.querySelectorAll(selector)];
 }
 
+function $text(selector, node = document) {
+  const el = typeof selector === 'string' ?
+    node.querySelector(selector) :
+    selector;
+  return el ? el.textContent.trim() : '';
+}
+
 function $create(tag, props = {}, children = props.children) {
-  let parent, after, before;
   if (!children && (
     props instanceof Node ||
     typeof props !== 'object' ||
@@ -655,15 +660,9 @@ function $create(tag, props = {}, children = props.children) {
     const v = props[k];
     switch (k) {
       case 'children':
-        continue;
       case 'parent':
-        parent = v;
-        continue;
       case 'after':
-        after = v;
-        continue;
       case 'before':
-        before = v;
         continue;
       case 'style':
         if (el.getAttribute('style') !== v)
@@ -682,12 +681,12 @@ function $create(tag, props = {}, children = props.children) {
     else
       el.append(children);
   }
-  if (parent && parent !== el.parentNode)
-    parent.appendChild(el);
-  if (before && before !== el.nextSibling)
-    before.insertAdjacentElement('beforeBegin', el);
-  if (after && after !== el.previousSibling)
-    after.insertAdjacentElement('afterEnd', el);
+  if (props.parent && props.parent !== el.parentNode)
+    props.parent.appendChild(el);
+  if (props.before && props.before !== el.nextSibling)
+    props.before.insertAdjacentElement('beforeBegin', el);
+  if (props.after && props.after !== el.previousSibling)
+    props.after.insertAdjacentElement('afterEnd', el);
   return el;
 }
 
@@ -696,13 +695,6 @@ function $createLink(props, children) {
     rel: 'noopener noreferrer',
     target: '_blank',
   }), children);
-}
-
-function $text(selector, node = document) {
-  const el = typeof selector === 'string' ?
-    node.querySelector(selector) :
-    selector;
-  return el ? el.textContent.trim() : '';
 }
 
 App.init();
