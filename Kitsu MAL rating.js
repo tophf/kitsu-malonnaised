@@ -182,8 +182,10 @@ class App {
     await Util.nextTick();
     if (!App.busy)
       return;
-    for (const el of elements)
-      el.style.setProperty('opacity', '0');
+    for (const el of elements) {
+      if (document.contains(el))
+        el.style.setProperty('opacity', '0');
+    }
   }
 }
 
