@@ -25,6 +25,7 @@
 const API_URL = 'https://kitsu.io/api/edge/';
 const MAL_URL = 'https://myanimelist.net/';
 const MAL_CDN_URL = 'https://cdn.myanimelist.net/';
+let MAL_IMG_EXT = '.jpg';
 
 const RX_KITSU_TYPE_SLUG = /\/(anime|manga)\/([^/?#]+)(?:[?#].*)?$|$/;
 const RX_INTERCEPT = new RegExp(
@@ -52,8 +53,19 @@ class App {
     window.addEventListener('popstate', () => App.onUrlChange());
     App.onUrlChange();
 
+    // detect WebP support
+    $create('img', {
+      src: 'data:image/webp;base64,UklGRh4AAABXRUJQVlA4TBEAAAAvAAAAAAfQ//73v/+BiOh/AAA=',
+      onload() {
+        MAL_IMG_EXT = '.webp';
+      },
+    });
+
     // language=CSS
     GM_addStyle(`
+      [id^="${GM_info.script.name}:"] a:hover {
+        text-decoration: underline;
+      }
       ${Object.keys(ID).map(id => '#' + id).join(',')} {
         transition: opacity .5s;
       }
@@ -74,7 +86,13 @@ class App {
       .media--sidebar .is-sticky {
         position: static !important;
       }
-      #CHARS a {
+      #CHARS h5 a {
+        font: inherit;
+      }
+      #CHARS ul a {
+        width: 50%;
+      }
+      #CHARS ul a {
         width: 50%;
       }
       #CHARS a[href*="/people/"] {
@@ -282,16 +300,19 @@ class Mal {
     }
   }
 
-  static findImgIds(img) {
-    // https://cdn.myanimelist.net/r/23x32/images/characters/7/331067.webp?s=xxxxxxxxxx
+  static wring(img) {
     const {src} = img.dataset;
-    return src && src.match(/\d+\/\d+\.\w+|$/)[0];
-  }
-
-  static findUrlIds(el) {
-    // https://myanimelist.net/character/101457/Chika_Kudou
-    const a = el.closest('a');
-    return a && a.href.match(/\d+\/[^/]+$|$/)[0];
+    const a = img.closest('a');
+    return [
+      Mal.decodeHtml(img.alt) || 0,
+      // https://myanimelist.net/character/101457/Chika_Kudou
+      // https://myanimelist.net/recommendations/anime/31859-35790
+      a && a.href.match(/\/(\d+\/[^/]+|\d+-\d+)$|$/)[1] || 0,
+      // https://cdn.myanimelist.net/r/23x32/images/characters/7/331067.webp?s=xxxxxxxxxx
+      // https://cdn.myanimelist.net/r/23x32/images/voiceactors/1/47102.jpg?s=xxxxxxxxx
+      // https://cdn.myanimelist.net/r/90x140/images/anime/13/77976.webp?s=xxxxxxx
+      src && src.match(/\/(\d+\/\d+)\.|$/)[1] || 0,
+    ];
   }
 
   static str2num(str) {
@@ -337,22 +358,15 @@ class Mal {
       const char = $('a[href*="/character/"] img', el);
       const actor = $('a[href*="/people/"] img', el);
       return [
-        char ? Mal.decodeHtml(char.alt) : 0,
-        char ? Mal.findUrlIds(char) : 0,
-        char ? Mal.findImgIds(char) : 0,
         $text('small', el),
-      ].concat(actor && [
-        Mal.decodeHtml(actor.alt),
-        Mal.findUrlIds(actor),
-        Mal.findImgIds(actor),
-      ] || []);
+        char ? Mal.wring(char) : [],
+        ...(actor ? [Mal.wring(actor)] : []),
+      ];
     });
 
     const recs = $$('#anime_recommendation .link', doc).map(a => [
-      $text('.title', a),
+      ...Mal.wring($('img', a)),
       parseInt($text('.users', a)) || 0,
-      a.href.match(/\d+-\d+|$/)[0],
-      Mal.findImgIds($('img', a)),
     ]);
 
     return {rating, members, favs, chars, recs};
@@ -505,7 +519,7 @@ class Render {
     });
   }
 
-  static characters({chars}) {
+  static characters({chars, url}) {
     $create('section', {
       id: ID.CHARS,
       parent: $('.media-summary'),
@@ -513,25 +527,29 @@ class Render {
       style: chars ? '' : 'opacity:0',
     }, [
       $create('div', {className: 'related-media-panel'}, [
-        $create('h5', {textContent: 'Characters on MAL'}),
+        $create('h5', [
+          $createLink({href: url + '/characters'}, 'Characters on MAL'),
+        ]),
         $create('ul',
-          chars.map(([name, urlId, imgId, type, actor, actorUrlId, actorImgId]) =>
+          chars.map(([type, [char, charId, charImg], [va, vaId, vaImg] = []]) =>
             $create('li', [
-              name &&
-              $createLink({href: MAL_URL + 'character/' + urlId}, [
-                imgId ?
+              char &&
+              $createLink({href: MAL_URL + 'character/' + charId}, [
+                charImg ?
                   $create('img', {
-                    src: MAL_CDN_URL + 'images/characters/' + imgId.replace('.jpg', '.webp'),
+                    src: MAL_CDN_URL + 'images/characters/' + charImg + MAL_IMG_EXT,
                   }) :
                   $create('p'),
-                $create('div', name),
+                $create('div', char),
                 $create('small', type),
               ]),
-              actor &&
-              $createLink({href: MAL_URL + 'people/' + actorUrlId}, [
-                actorImgId && $create('img', {src: MAL_CDN_URL + 'images/voiceactors/' + actorImgId}),
-                $create('div', actor),
-                !name && $create('small', type),
+              va &&
+              $createLink({href: MAL_URL + 'people/' + vaId}, [
+                vaImg &&
+                $create('img', {src: MAL_CDN_URL + 'images/voiceactors/' + vaImg + '.jpg'}),
+                $create('div', va),
+                !char &&
+                $create('small', type),
               ]),
             ])
           )
