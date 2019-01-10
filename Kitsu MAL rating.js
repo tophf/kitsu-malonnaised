@@ -29,13 +29,9 @@ const MAL_URL = 'https://myanimelist.net/';
 const MAL_CDN_URL = 'https://cdn.myanimelist.net/';
 let MAL_IMG_EXT = '.jpg';
 
-const RX_KITSU_TYPE_SLUG = /\/(anime|manga)\/([^/?#]+)(?:[?#].*)?$|$/;
 const RX_INTERCEPT = new RegExp(
   '^' + API_URL.replace(/\./g, '\\.') +
   '(anime|manga)\\?.*?&include=');
-
-const SEL_READY_SIGN = 'meta[property="og:url"]';
-const SEL_RATING_CONTAINER = '.media-rating';
 
 const ID = (me => ({
   BASE: me,
@@ -43,6 +39,7 @@ const ID = (me => ({
   USERS: `${me}:USERS`,
   FAVS: `${me}:FAVS`,
   CHARS: `${me}:CHARS`,
+  RECS: `${me}:RECS`,
 }))(GM_info.script.name);
 
 const HOUR = 3600e3;
@@ -63,6 +60,14 @@ class App {
         MAL_IMG_EXT = '.webp';
       },
     });
+
+    const RECS_MIN_HEIGHT = 250;
+    const RECS_MAX_HEIGHT = RECS_MIN_HEIGHT * 10;
+    const RECS_TRANSITION_TIMING = '.5s .25s';
+
+    if (document.readyState !== 'complete')
+      await new Promise(resolve => addEventListener('load', resolve, {once: true}));
+    const bgColor = getComputedStyle(document.body).backgroundColor;
 
     // language=CSS
     GM_addStyle(`
@@ -92,11 +97,15 @@ class App {
       #CHARS h5 a {
         font: inherit;
       }
-      #CHARS ul a {
+      #CHARS[type="anime"] li a {
         width: 50%;
       }
-      #CHARS ul a {
-        width: 50%;
+      #CHARS[type="manga"] li {
+        width: calc(50% - 4px);
+        display: inline-block;
+      }
+      #CHARS[type="manga"] li:nth-child(odd) {
+        margin-right: 8px;
       }
       #CHARS a[href*="/people/"] {
         opacity: .5;
@@ -124,6 +133,76 @@ class App {
       }
       #CHARS p {
         height: 33%;
+      }
+      #CHARS small {
+        display: block;
+        margin-bottom: 8px;
+      }
+      #RECS {
+        margin-bottom: 1em;
+        max-height: ${RECS_MIN_HEIGHT}px;
+        overflow: hidden;
+        transition: max-height ${RECS_TRANSITION_TIMING};
+      }
+      #RECS:hover {
+        max-height: ${RECS_MAX_HEIGHT}px;
+      }
+      #RECS::before {
+        background: linear-gradient(transparent 33%, ${bgColor});
+        position: absolute;
+        display: block;
+        content: "";
+        width: 100%;
+        z-index: 999;
+        min-height: ${RECS_MIN_HEIGHT}px;
+        pointer-events: none;
+        transition: min-height ${RECS_TRANSITION_TIMING},
+                    opacity ${RECS_TRANSITION_TIMING};
+      }
+      #RECS:hover::before {
+        opacity: 0;
+        min-height: ${RECS_MAX_HEIGHT}px;
+      }
+      #RECS ul {
+        display: flex;
+        flex-wrap: wrap;
+        margin: 0;
+        padding: 0;
+      }
+      #RECS li {
+        list-style: none;
+        margin-right: .5rem;
+      }
+      #RECS li > a {
+        width: 180px;
+        display: block;
+        font-size: 13px;
+        margin-top: -.25em;
+      }
+      #RECS div {
+        max-height: 255px;
+        overflow: hidden;
+      }
+      #RECS p {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        padding: 0;
+        margin: 0;
+      }
+      #RECS small {
+        font-size: 10px;
+        opacity: .5;
+      }
+      #RECS li:hover small {
+        opacity: 1;
+      }
+      #RECS > a {
+        font-weight: bold;
+      }
+      #RECS img {
+        margin:  -2px;
+        max-width: calc(100% + 4px);
       }
     `.replace(
       /#([A-Z]+)/g,
@@ -174,6 +253,7 @@ class App {
     await Mutant.ogUrl(data);
     Render.stats(data);
     Render.characters(data);
+    Render.recommendations(data);
     App.busy = false;
   }
 
@@ -338,19 +418,21 @@ class Mal {
     }
   }
 
-  static wring(img) {
-    const {src} = img.dataset;
+  static wring(img, stripId) {
+    const text = Util.decodeHtml(img.alt) || 0;
+    // https://myanimelist.net/character/101457/Chika_Kudou
+    // https://myanimelist.net/recommendations/anime/31859-35790
+    // https://myanimelist.net/anime/19815/No_Game_No_Life?suggestion
     const a = img.closest('a');
-    return [
-      Util.decodeHtml(img.alt) || 0,
-      // https://myanimelist.net/character/101457/Chika_Kudou
-      // https://myanimelist.net/recommendations/anime/31859-35790
-      a && a.href.match(/\/(\d+\/[^/]+|\d+-\d+)$|$/)[1] || 0,
-      // https://cdn.myanimelist.net/r/23x32/images/characters/7/331067.webp?s=xxxxxxxxxx
-      // https://cdn.myanimelist.net/r/23x32/images/voiceactors/1/47102.jpg?s=xxxxxxxxx
-      // https://cdn.myanimelist.net/r/90x140/images/anime/13/77976.webp?s=xxxxxxx
-      src && src.match(/\/(\d+\/\d+)\.|$/)[1] || 0,
-    ];
+    let aId = a && a.href.match(/\/(\d+(?:-\d+)?)|$/)[1] || 0;
+    if (stripId && aId && aId.includes('-'))
+      aId = aId.replace(stripId, '');
+    // https://cdn.myanimelist.net/r/23x32/images/characters/7/331067.webp?s=xxxxxxxxxx
+    // https://cdn.myanimelist.net/r/23x32/images/voiceactors/1/47102.jpg?s=xxxxxxxxx
+    // https://cdn.myanimelist.net/r/90x140/images/anime/13/77976.webp?s=xxxxxxx
+    const {src} = img.dataset;
+    const imgId = src && src.match(/\/(\d+\/\d+)\.|$/)[1] || 0;
+    return [text, aId >> 0, imgId];
   }
 
   static async scavenge(url) {
@@ -360,11 +442,8 @@ class Mal {
     el = $('[itemprop="ratingValue"],' +
            '[data-id="info1"] > span:not(.dark_text)', doc);
     score = $text(el).trim();
-    score = score && Number(score.match(/[\d.]+|$/)[0]) || score || undefined;
-    score = score && [
-      score,
-      Util.str2num($text('[itemprop="ratingCount"]', doc)),
-    ];
+    score = score && Number(score.match(/[\d.]+|$/)[0]) || score;
+    const ratingCount = Util.str2num($text('[itemprop="ratingCount"]', doc));
 
     while (el.parentElement && !el.parentElement.textContent.includes('Members:'))
       el = el.parentElement;
@@ -374,22 +453,32 @@ class Mal {
       favs = favs || Util.str2num(txt.match(/Favorites:\s*([\d,]+)|$/)[1]);
     }
 
-    const chars = $$('.detail-characters-list table[width]', doc).map(el => {
-      const char = $('a[href*="/character/"] img', el);
-      const actor = $('a[href*="/people/"] img', el);
-      return [
-        $text('small', el),
-        char ? Mal.wring(char) : [],
-        ...(actor ? [Mal.wring(actor)] : []),
-      ];
-    });
+    const chars = $$('.detail-characters-list table[width]', doc)
+      .map(el => {
+        const char = $('a[href*="/character/"] img', el);
+        const actor = $('a[href*="/people/"] img', el);
+        return [
+          $text('small', el),
+          char ? Mal.wring(char) : [],
+          ...(actor ? [Mal.wring(actor)] : []),
+        ];
+      });
 
-    const recs = $$('#anime_recommendation .link', doc).map(a => [
-      ...Mal.wring($('img', a)),
-      parseInt($text('.users', a)) || 0,
-    ]);
+    const rxStripOwnId = new RegExp('-?\\b' + url.match(/\d+/)[0] + '\\b-?');
+    const recs = $$('#anime_recommendation .link,' +
+                    '#manga_recommendation .link', doc)
+      .map(a => [
+        ...Mal.wring($('img', a), rxStripOwnId),
+        parseInt($text('.users', a)) || 0,
+      ]);
 
-    return {score, users, favs, chars, recs};
+    return {
+      users,
+      favs,
+      score: score ? [score, ratingCount || 0] : undefined,
+      chars: chars.length ? chars : undefined,
+      recs: recs.length ? recs : undefined,
+    };
   }
 }
 
@@ -454,7 +543,7 @@ class Mutant {
 
   static ogUrl(data) {
     const url = TypeSlug.toUrl(data);
-    const el = $(SEL_READY_SIGN);
+    const el = $('meta[property="og:url"]');
     if (el && el.content === url)
       return Promise.resolve();
     if (!Mutant._state)
@@ -518,30 +607,31 @@ class Render {
       title: count && `Scored by ${Render.num2str(count)} users` || '',
       href: url,
       id: ID.SCORE,
-      parent: $(SEL_RATING_CONTAINER),
+      parent: $('.media-rating'),
       className: 'media-community-rating' + (quarter ? ' percent-quarter-' + quarter : ''),
-      style: '',
+      '*style': '',
     });
     $create('span', {
       id: ID.USERS,
       after: $id(ID.SCORE),
       textContent: Render.num2str(users),
-      style: users ? '' : 'opacity:0',
+      '*style': users ? '' : 'opacity:0',
     });
     $create('span', {
       id: ID.FAVS,
       after: $id(ID.USERS),
       textContent: Render.num2str(favs),
-      style: favs ? '' : 'opacity:0',
+      '*style': favs ? '' : 'opacity:0',
     });
   }
 
-  static characters({chars, url, slug}) {
+  static characters({chars, url, type, slug}) {
     $create('section', {
       id: ID.CHARS,
       parent: $('.media-summary'),
       className: 'media--related',
-      style: chars ? '' : 'opacity:0',
+      '*style': chars ? '' : 'opacity:0',
+      '*type': type,
     }, [
       $create('div', {className: 'related-media-panel'}, [
         $create('h5', [
@@ -574,13 +664,38 @@ class Render {
       ]),
     ]);
   }
+
+  static recommendations({recs, url, type, slug}) {
+    const mainId = url.match(/\d+/)[0];
+    $create('section', {
+      id: ID.RECS,
+      before: $('.media--reactions'),
+      '*style': recs ? '' : 'opacity:0',
+    }, [
+      $createLink({href: `${url}/${slug}/userrecs`}, 'Recommendations on MAL'),
+      $create('ul',
+        recs.map(([name, id, img, count]) =>
+          $create('li', [
+            $create('small',
+              !count ?
+                'auto-rec' :
+                $createLink({href: `${MAL_URL}recommendations/${type}/${id}-${mainId}`},
+                  count + ' rec' + (count > 1 ? 's' : ''))),
+            $createLink({href: `${MAL_URL}${type}/${id}`}, [
+              $create('p', name),
+              $create('div',
+                $create('img', {src: `${MAL_CDN_URL}images/${type}/${img}${MAL_IMG_EXT}`})),
+            ]),
+          ]))),
+    ]);
+  }
 }
 
 
 class TypeSlug {
 
   static fromUrl(url = location.pathname) {
-    const m = url.match(RX_KITSU_TYPE_SLUG);
+    const m = url.match(/\/(anime|manga)\/([^/?#]+)(?:[?#].*)?$|$/);
     return m ? m.slice(1) : [];
   }
 
@@ -643,7 +758,7 @@ function $text(selector, node = document) {
   return el ? el.textContent.trim() : '';
 }
 
-function $create(tag, props = {}, children = props.children) {
+function $create(tag, props = {}, children) {
   if (!children && (
     props instanceof Node ||
     typeof props !== 'object' ||
@@ -664,20 +779,22 @@ function $create(tag, props = {}, children = props.children) {
       case 'after':
       case 'before':
         continue;
-      case 'style':
-        if (el.getAttribute('style') !== v)
-          el.setAttribute('style', v);
-        continue;
       default:
-        if (el[k] !== v)
+        if (k.startsWith('*')) {
+          if (el.getAttribute(k.slice(1)) !== v)
+            el.setAttribute(k.slice(1), v);
+        } else if (el[k] !== v) {
           el[k] = v;
+        }
     }
   }
+  if (!children)
+    children = props.children;
   if (children) {
     if (el.firstChild)
       el.textContent = '';
     if (typeof children !== 'string' && Symbol.iterator in children)
-      el.append(...children.filter(Boolean));
+      el.append(...[...children].filter(Boolean));
     else
       el.append(children);
   }
