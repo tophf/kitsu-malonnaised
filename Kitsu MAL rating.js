@@ -13,6 +13,7 @@
 // @grant        GM_addStyle
 // @grant        unsafeWindow
 
+// @require      https://greasyfork.org/scripts/27531/code/LZStringUnsafe.js
 // @run-at       document-start
 
 // @connect      myanimelist.net
@@ -21,6 +22,7 @@
 
 'use strict';
 /* global GM_info GM_xmlhttpRequest GM_addStyle unsafeWindow exportFunction */
+/* global LZStringUnsafe */
 
 const API_URL = 'https://kitsu.io/api/edge/';
 const MAL_URL = 'https://myanimelist.net/';
@@ -36,8 +38,8 @@ const SEL_READY_SIGN = 'meta[property="og:url"]';
 const SEL_RATING_CONTAINER = '.media-rating';
 
 const ID = (me => ({
-  RATING: `${me}:RATING`,
-  MEMBERS: `${me}:MEMBERS`,
+  SCORE: `${me}:SCORE`,
+  USERS: `${me}:USERS`,
   FAVS: `${me}:FAVS`,
   CHARS: `${me}:CHARS`,
 }))(GM_info.script.name);
@@ -69,12 +71,12 @@ class App {
       ${Object.keys(ID).map(id => '#' + id).join(',')} {
         transition: opacity .5s;
       }
-      #RATING:not(:first-child),
-      #MEMBERS,
+      #SCORE:not(:first-child),
+      #USERS,
       #FAVS {
         margin-left: 1em;
       }
-      #MEMBERS::before {
+      #USERS::before {
         content: '\\1F464';
         margin-right: .25em;
       }
@@ -166,19 +168,18 @@ class App {
 
   static async plant(data = {}) {
     await Mutant.ogUrl(data);
-    Render.rating(data);
-    Render.users(data);
+    Render.stats(data);
     Render.characters(data);
     App.busy = false;
   }
 
   static async expire() {
     const elements = [
-      $id(ID.RATING),
+      $id(ID.SCORE),
     ];
     if (!elements.length)
       return;
-    await new Promise(setTimeout);
+    await Util.nextTick();
     if (!App.busy)
       return;
     for (const el of elements)
@@ -207,7 +208,7 @@ class Cache {
 
     const malKey = Cache.malKey(TID);
     try {
-      const data = JSON.parse(localStorage[malKey]);
+      const data = Cache.unpackProps(localStorage[malKey]);
       return {url, data};
     } catch (e) {
       delete localStorage[malKey];
@@ -215,17 +216,53 @@ class Cache {
     }
   }
 
-  static write(type, slug, malFullTypeId, data) {
+  static async write(type, slug, malFullTypeId, data) {
     const key = Cache.key(type, slug);
     const TID = Mal.shortenTypeId(malFullTypeId);
     localStorage[key] = Math.floor(Date.now() / 60e3).toString(36) + ' ' + TID;
 
     const malKey = Cache.malKey(TID);
-    const dataStr = JSON.stringify(data);
-    if (dataStr !== '{}')
-      localStorage[malKey] = dataStr;
-    else
+    if (Util.isEmpty(data)) {
       delete localStorage[malKey];
+      return;
+    }
+    await Util.nextTick();
+    const dataStr = Object.entries(data).map(Cache.packProp).join('\n');
+    localStorage[malKey] = dataStr;
+  }
+
+  static packProp([k, v]) {
+    if (typeof v !== 'object')
+      return k + '\t' + v;
+    const str = JSON.stringify(v);
+    return str.length > 50 ?
+      k + '|z\t' + LZStringUnsafe.compressToUTF16(str) :
+      k + '|j\t' + str;
+  }
+
+  static unpackProps(dataStr) {
+    const data = {};
+    for (const str of dataStr.split('\n')) {
+      const i = str.indexOf('\t');
+      const [k, fmt] = str.slice(0, i).split('|');
+      let v = str.slice(i + 1);
+      switch (fmt) {
+        case 'z':
+          v = LZStringUnsafe.decompressFromUTF16(v);
+          // fallthrough to 'j'
+        case 'j':
+          v = JSON.parse(v);
+          break;
+        default: {
+          const num = Number(v);
+          if (!isNaN(num))
+            v = num;
+          break;
+        }
+      }
+      data[k] = v;
+    }
+    return data;
   }
 
   static expired(time) {
@@ -304,7 +341,7 @@ class Mal {
     const {src} = img.dataset;
     const a = img.closest('a');
     return [
-      Mal.decodeHtml(img.alt) || 0,
+      Util.decodeHtml(img.alt) || 0,
       // https://myanimelist.net/character/101457/Chika_Kudou
       // https://myanimelist.net/recommendations/anime/31859-35790
       a && a.href.match(/\/(\d+\/[^/]+|\d+-\d+)$|$/)[1] || 0,
@@ -315,43 +352,25 @@ class Mal {
     ];
   }
 
-  static str2num(str) {
-    return str && Number(str.replace(/,/g, '')) || undefined;
-  }
-
-  static decodeHtml(str) {
-    if (str.includes('&#')) {
-      str = str.replace(/&#(x?)([\da-f]);/gi, (_, hex, code) =>
-        String.fromCharCode(parseInt(code, hex ? 16 : 10)));
-    }
-    if (!str.includes('&') ||
-        !/&\w+;/.test(str))
-      return str;
-    if (!Mal.parser)
-      Mal.parser = new DOMParser();
-    const doc = Mal.parser.parseFromString(str, 'text/html');
-    return doc.body.firstChild.textContent;
-  }
-
   static async scavenge(url) {
     const doc = await Get.doc(url);
-    let el, rating, members, favs;
+    let el, score, users, favs;
 
     el = $('[itemprop="ratingValue"],' +
            '[data-id="info1"] > span:not(.dark_text)', doc);
-    rating = $text(el).trim();
-    rating = rating && Number(rating.match(/[\d.]+|$/)[0]) || rating || undefined;
-    rating = rating && [
-      rating,
-      Mal.str2num($text('[itemprop="ratingCount"]', doc)),
+    score = $text(el).trim();
+    score = score && Number(score.match(/[\d.]+|$/)[0]) || score || undefined;
+    score = score && [
+      score,
+      Util.str2num($text('[itemprop="ratingCount"]', doc)),
     ];
 
     while (el.parentElement && !el.parentElement.textContent.includes('Members:'))
       el = el.parentElement;
-    while ((!members || !favs) && (el = el.nextElementSibling)) {
+    while ((!users || !favs) && (el = el.nextElementSibling)) {
       const txt = el.textContent;
-      members = members || Mal.str2num(txt.match(/Members:\s*([\d,]+)|$/)[1]);
-      favs = favs || Mal.str2num(txt.match(/Favorites:\s*([\d,]+)|$/)[1]);
+      users = users || Util.str2num(txt.match(/Members:\s*([\d,]+)|$/)[1]);
+      favs = favs || Util.str2num(txt.match(/Favorites:\s*([\d,]+)|$/)[1]);
     }
 
     const chars = $$('.detail-characters-list table[width]', doc).map(el => {
@@ -369,7 +388,7 @@ class Mal {
       parseInt($text('.users', a)) || 0,
     ]);
 
-    return {rating, members, favs, chars, recs};
+    return {score, users, favs, chars, recs};
   }
 }
 
@@ -490,36 +509,33 @@ class Render {
     return num && num.toLocaleString() || '';
   }
 
-  static rating({rating: [r, count] = ['N/A'], url} = {}) {
+  static stats({score: [r, count] = ['N/A'], users, favs, url} = {}) {
     const quarter = r > 0 && Math.max(1, Math.min(4, 1 + (r - .001) / 2.5 >> 0));
     const str = (r > 0 ? (r * 10).toFixed(2).replace(/\.?0+$/, '') + '%' : r) + ' on MAL';
     $createLink({
       textContent: str,
       title: count && `Scored by ${Render.num2str(count)} users` || '',
       href: url,
-      id: ID.RATING,
+      id: ID.SCORE,
       parent: $(SEL_RATING_CONTAINER),
       className: 'media-community-rating' + (quarter ? ' percent-quarter-' + quarter : ''),
       style: '',
     });
-  }
-
-  static users({members, favs}) {
     $create('span', {
-      id: ID.MEMBERS,
-      after: $id(ID.RATING),
-      textContent: Render.num2str(members),
-      style: members ? '' : 'opacity:0',
+      id: ID.USERS,
+      after: $id(ID.SCORE),
+      textContent: Render.num2str(users),
+      style: users ? '' : 'opacity:0',
     });
     $create('span', {
       id: ID.FAVS,
-      after: $id(ID.MEMBERS),
+      after: $id(ID.USERS),
       textContent: Render.num2str(favs),
       style: favs ? '' : 'opacity:0',
     });
   }
 
-  static characters({chars, url}) {
+  static characters({chars, url, slug}) {
     $create('section', {
       id: ID.CHARS,
       parent: $('.media-summary'),
@@ -528,7 +544,7 @@ class Render {
     }, [
       $create('div', {className: 'related-media-panel'}, [
         $create('h5', [
-          $createLink({href: url + '/characters'}, 'Characters on MAL'),
+          $createLink({href: `${url}/${slug}/characters`}, 'Characters on MAL'),
         ]),
         $create('ul',
           chars.map(([type, [char, charId, charImg], [va, vaId, vaImg] = []]) =>
@@ -569,6 +585,40 @@ class TypeSlug {
 
   static toUrl({type, slug}) {
     return `${location.origin}/${type}/${slug}`;
+  }
+}
+
+
+class Util {
+
+  static str2num(str) {
+    return str && Number(str.replace(/,/g, '')) || undefined;
+  }
+
+  static decodeHtml(str) {
+    if (str.includes('&#')) {
+      str = str.replace(/&#(x?)([\da-f]);/gi, (_, hex, code) =>
+        String.fromCharCode(parseInt(code, hex ? 16 : 10)));
+    }
+    if (!str.includes('&') ||
+        !/&\w+;/.test(str))
+      return str;
+    if (!Mal.parser)
+      Mal.parser = new DOMParser();
+    const doc = Mal.parser.parseFromString(str, 'text/html');
+    return doc.body.firstChild.textContent;
+  }
+
+  static isEmpty(obj) {
+    for (const k in obj) {
+      if (obj[k] !== undefined)
+        return false;
+    }
+    return true;
+  }
+
+  static nextTick() {
+    return new Promise(setTimeout);
   }
 }
 
