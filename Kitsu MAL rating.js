@@ -63,42 +63,57 @@ class App {
 
     if (document.readyState !== 'complete')
       await new Promise(resolve => addEventListener('load', resolve, {once: true}));
+
     const bgColor = getComputedStyle(document.body).backgroundColor;
 
     const RECS_MIN_HEIGHT = 250;
     const RECS_MAX_HEIGHT = RECS_MIN_HEIGHT * 10;
+    const RECS_IMG_WIDTH = 180;
+    const RECS_IMG_HEIGHT = 255;
+    const RECS_TITLE_FONT_SIZE = 13;
     const RECS_TRANSITION_TIMING = '.5s .25s';
 
-    const CSS_EXTERNAL_LINK = "url('" +
+    const EXT_LINK = "url('" +
       'data:image/svg+xml;utf8,' +
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22">' +
       '<path d="M13,0v2h5.6L6.3,14.3l1.4,1.4L20,3.4V9h2V0H13z M0,4v18h18V9l-2,2v9H2V6h9l2-2H0z"/>' +
       '</svg>' + "')";
+    const EXT_LINK_SIZE_EM = 1;
+
     let maskImageProp = 'mask-image';
     const extLinkRule =
-      CSS.supports(maskImageProp, CSS_EXTERNAL_LINK) ||
-      CSS.supports((maskImageProp = '-webkit-' + maskImageProp), CSS_EXTERNAL_LINK) ?
+      CSS.supports(maskImageProp, EXT_LINK) ||
+      CSS.supports((maskImageProp = '-webkit-' + maskImageProp), EXT_LINK) ?
       // language=CSS
       `a[href^="http"]::after {
         content: "\\a0";
-        ${maskImageProp}: ${CSS_EXTERNAL_LINK};
+        ${maskImageProp}: ${EXT_LINK};
         background-color: currentColor;
-        margin-left: .5em;
-        width: 1em;
-        height: 1em;
+        margin-left: ${EXT_LINK_SIZE_EM / 2}em;
+        width: ${EXT_LINK_SIZE_EM}em;
+        height: ${EXT_LINK_SIZE_EM}em;
         display: inline-block;
         vertical-align: text-top;
       }` :
       '';
 
+    const allIds = (suffix = '') =>
+      Object.keys(ID)
+        .filter(id => id !== 'BASE')
+        .map(id => '#' + CSS.escape(id) + ' ' + suffix)
+        .join(',');
+
     // language=CSS
     GM_addStyle(`
       ${extLinkRule}
+      .media--sidebar .is-sticky {
+        position: static !important;
+      }
       #SCORE:hover,
-      [id^="${CSS.escape(ID.BASE)}:"] a:hover {
+      ${allIds('a:hover')} {
         text-decoration: underline;
       }
-      ${Object.keys(ID).map(id => '#' + id).join(',')} {
+      ${allIds()} {
         transition: opacity .25s;
       }
       #SCORE:not(:first-child),
@@ -114,14 +129,12 @@ class App {
         content: '\\2764';
         margin-right: .25em;
       }
-      .media--sidebar .is-sticky {
-        position: static !important;
-      }
       #CHARS h5 a {
         font: inherit;
       }
-      #CHARS[type="anime"] li a {
+      #CHARS[type="anime"] li div {
         width: 50%;
+        display: inline-block;
       }
       #CHARS[type="manga"] li {
         width: calc(50% - 4px);
@@ -130,32 +143,40 @@ class App {
       #CHARS[type="manga"] li:nth-child(odd) {
         margin-right: 8px;
       }
-      #CHARS a[href*="/people/"] {
+      #CHARS div[type="people"] {
         opacity: .5;
         will-change: opacity;
         transition: opacity .25s .1s;
       }
-      #CHARS a[href*="/people/"] img {
+      #CHARS div[type="people"] img {
         opacity: .3;
         will-change: opacity;
         transition: opacity .25s .1s;
       }
-      #CHARS:hover a[href*="/people/"] img {
+      #CHARS:hover div[type="people"] img {
         opacity: .6;
       }
-      #CHARS a[href*="/people/"]:hover,
-      #CHARS a[href*="/people/"] img:hover {
+      #CHARS div[type="people"]:hover,
+      #CHARS div[type="people"] img:hover {
         opacity: 1;
       }
-      #CHARS a:first-child {
+      #CHARS div[type]:first-child a {
         font-weight: bold;
       }
-      #CHARS a[href*="/people/"]:only-child,
+      #CHARS span {
+        display: inline-block;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        max-width: calc(100% - 2em); /* room for the ext link icon */
+        vertical-align: sub;
+      }
+      #CHARS div[type="people"]:only-child,
       #CHARS img {
         width: 100%;
       }
-      #CHARS p {
-        height: 33%;
+      #CHARS div[type]:not(:only-child) a > :first-child:not(img) {
+        margin-top: 33%;
       }
       #CHARS small {
         display: block;
@@ -165,6 +186,8 @@ class App {
         margin-bottom: 1em;
         max-height: ${RECS_MIN_HEIGHT}px;
         overflow: hidden;
+        position: relative;
+        contain: layout;
         transition: max-height ${RECS_TRANSITION_TIMING};
       }
       #RECS:hover {
@@ -197,14 +220,17 @@ class App {
         margin-right: .5rem;
       }
       #RECS li > a {
-        width: 180px;
+        width: ${RECS_IMG_WIDTH}px;
         display: block;
-        font-size: 13px;
+        font-size: ${RECS_TITLE_FONT_SIZE}px;
         margin-top: -.25em;
+        margin-bottom: ${RECS_IMG_HEIGHT + 5}px;
       }
       #RECS div {
-        max-height: 255px;
+        width: ${RECS_IMG_WIDTH}px;
+        height: ${RECS_IMG_HEIGHT}px;
         overflow: hidden;
+        position: absolute;
       }
       #RECS p {
         white-space: nowrap;
@@ -212,6 +238,9 @@ class App {
         text-overflow: ellipsis;
         padding: 0;
         margin: 0;
+        display: inline-block;
+        vertical-align: sub;
+        max-width: ${RECS_IMG_WIDTH - EXT_LINK_SIZE_EM * 1.5 * RECS_TITLE_FONT_SIZE}px;
       }
       #RECS small {
         font-size: 10px;
@@ -224,8 +253,8 @@ class App {
         font-weight: bold;
       }
       #RECS img {
-        margin:  -2px;
-        max-width: calc(100% + 4px);
+        margin:  -1px;
+        max-width: ${RECS_IMG_WIDTH + 2}px;
       }
     `.replace(
       /#([A-Z]+)/g,
@@ -672,20 +701,23 @@ class Render {
           chars.map(([type, [char, charId, charImg], [va, vaId, vaImg] = []]) =>
             $create('li', [
               char &&
-              $createLink({href: MAL_URL + 'character/' + charId}, [
-                charImg ?
+              $create('div', {'*type': 'char'}, [
+                $createLink({href: MAL_URL + 'character/' + charId}, [
+                  charImg &&
                   $create('img', {
-                    src: MAL_CDN_URL + 'images/characters/' + charImg + MAL_IMG_EXT,
-                  }) :
-                  $create('p'),
-                $create('div', char),
+                    src: `${MAL_CDN_URL}images/characters/${charImg}${MAL_IMG_EXT}`,
+                  }),
+                  $create('span', char),
+                ]),
                 $create('small', type),
               ]),
               va &&
-              $createLink({href: MAL_URL + 'people/' + vaId}, [
-                vaImg &&
-                $create('img', {src: MAL_CDN_URL + 'images/voiceactors/' + vaImg + '.jpg'}),
-                $create('div', va),
+              $create('div', {'*type': 'people'}, [
+                $createLink({href: MAL_URL + 'people/' + vaId}, [
+                  vaImg &&
+                  $create('img', {src: MAL_CDN_URL + 'images/voiceactors/' + vaImg + '.jpg'}),
+                  $create('span', va),
+                ]),
                 !char &&
                 $create('small', type),
               ]),
