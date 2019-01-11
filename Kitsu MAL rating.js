@@ -61,16 +61,39 @@ class App {
       },
     });
 
-    const RECS_MIN_HEIGHT = 250;
-    const RECS_MAX_HEIGHT = RECS_MIN_HEIGHT * 10;
-    const RECS_TRANSITION_TIMING = '.5s .25s';
-
     if (document.readyState !== 'complete')
       await new Promise(resolve => addEventListener('load', resolve, {once: true}));
     const bgColor = getComputedStyle(document.body).backgroundColor;
 
+    const RECS_MIN_HEIGHT = 250;
+    const RECS_MAX_HEIGHT = RECS_MIN_HEIGHT * 10;
+    const RECS_TRANSITION_TIMING = '.5s .25s';
+
+    const CSS_EXTERNAL_LINK = "url('" +
+      'data:image/svg+xml;utf8,' +
+      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22">' +
+      '<path d="M13,0v2h5.6L6.3,14.3l1.4,1.4L20,3.4V9h2V0H13z M0,4v18h18V9l-2,2v9H2V6h9l2-2H0z"/>' +
+      '</svg>' + "')";
+    let maskImageProp = 'mask-image';
+    const extLinkRule =
+      CSS.supports(maskImageProp, CSS_EXTERNAL_LINK) ||
+      CSS.supports((maskImageProp = '-webkit-' + maskImageProp), CSS_EXTERNAL_LINK) ?
+      // language=CSS
+      `a[href^="http"]::after {
+        content: "\\a0";
+        ${maskImageProp}: ${CSS_EXTERNAL_LINK};
+        background-color: currentColor;
+        margin-left: .5em;
+        width: 1em;
+        height: 1em;
+        display: inline-block;
+        vertical-align: text-top;
+      }` :
+      '';
+
     // language=CSS
     GM_addStyle(`
+      ${extLinkRule}
       #SCORE:hover,
       [id^="${CSS.escape(ID.BASE)}:"] a:hover {
         text-decoration: underline;
@@ -282,7 +305,7 @@ class Cache {
     if (!time || !TID)
       return;
 
-    const url = MAL_URL + Mal.expandTypeId(TID);
+    const url = MAL_URL + MalTypeId.fromTID(TID).join('/');
 
     if (Cache.expired(time))
       return {url};
@@ -297,9 +320,9 @@ class Cache {
     }
   }
 
-  static async write(type, slug, malFullTypeId, data) {
+  static async write(type, slug, malTypeId, data) {
     const key = Cache.key(type, slug);
-    const TID = Mal.shortenTypeId(malFullTypeId);
+    const TID = MalTypeId.toTID(malTypeId);
     localStorage[key] = Math.floor(Date.now() / 60e3).toString(36) + ' ' + TID;
 
     const malKey = Cache.malKey(TID);
@@ -351,7 +374,7 @@ class Cache {
   }
 
   static key(type, slug) {
-    return `:${type.slice(0, 1)}:${slug}`;
+    return `:${type[0]}:${slug}`;
   }
 
   static malKey(malTID) {
@@ -391,21 +414,63 @@ class Get {
 }
 
 
+class Intercept {
+  constructor(name, method, fn) {
+    this._subscribers = new Set();
+    const original = unsafeWindow[name].prototype[method];
+    unsafeWindow[name].prototype[method] = exportFunction(function () {
+      const augmentedArgs = fn.apply(this, arguments);
+      return original.apply(this, augmentedArgs || arguments);
+    }, unsafeWindow);
+  }
+
+  subscribe(fn) {
+    this._subscribers.add(fn);
+  }
+}
+
+
+class InterceptHistory extends Intercept {
+  constructor() {
+    super('History', 'pushState', (state, title, url) => {
+      for (const fn of this._subscribers)
+        fn(url);
+    });
+  }
+}
+
+
+class InterceptXHR extends Intercept {
+  constructor() {
+    let self;
+    super('XMLHttpRequest', 'open', function (method, url, ...args) {
+      if (/^get$/i.test(method) &&
+          RX_INTERCEPT.test(url)) {
+        App.hide();
+        this.addEventListener('load', e => self.onload(e), {once: true});
+        url = InterceptXHR.augment(url);
+        return [method, url, ...args];
+      }
+    });
+    self = this;
+  }
+
+  static augment(url) {
+    const u = new URL(url);
+    u.searchParams.set('include', u.searchParams.get('include') + ',mappings');
+    u.searchParams.set('fields[mappings]', 'externalSite,externalId');
+    return u.href;
+  }
+
+  onload(e) {
+    const json = JSON.parse(e.target.responseText);
+    for (const fn of this._subscribers)
+      fn(json);
+  }
+}
+
+
 class Mal {
-
-  static expandTypeId(short) {
-    const t = short.slice(0, 1);
-    const fullType = t === 'a' && 'anime' ||
-                     t === 'm' && 'manga' ||
-                     t === 'c' && 'character' ||
-                     t === 'p' && 'people' ||
-                     '';
-    return fullType + '/' + short.slice(1);
-  }
-
-  static shortenTypeId(full) {
-    return full.slice(0, 1) + full.split('/')[1];
-  }
 
   static findUrl(data) {
     for (const {type, attributes: a} of data.included || []) {
@@ -483,58 +548,24 @@ class Mal {
 }
 
 
-class Intercept {
-  constructor(name, method, fn) {
-    this._subscribers = new Set();
-    const original = unsafeWindow[name].prototype[method];
-    unsafeWindow[name].prototype[method] = exportFunction(function () {
-      const augmentedArgs = fn.apply(this, arguments);
-      return original.apply(this, augmentedArgs || arguments);
-    }, unsafeWindow);
+class MalTypeId {
+
+  static fromUrl(url) {
+    return url.match(/((?:anime|manga)\/\d+)|$/)[1] || '';
   }
 
-  subscribe(fn) {
-    this._subscribers.add(fn);
-  }
-}
-
-
-class InterceptHistory extends Intercept {
-  constructor() {
-    super('History', 'pushState', (state, title, url) => {
-      for (const fn of this._subscribers)
-        fn(url);
-    });
-  }
-}
-
-
-class InterceptXHR extends Intercept {
-  constructor() {
-    let self;
-    super('XMLHttpRequest', 'open', function (method, url, ...args) {
-      if (/^get$/i.test(method) &&
-          RX_INTERCEPT.test(url)) {
-        App.hide();
-        this.addEventListener('load', e => self.onload(e), {once: true});
-        url = InterceptXHR.augment(url);
-        return [method, url, ...args];
-      }
-    });
-    self = this;
+  static fromTID(short) {
+    const t = short.slice(0, 1);
+    const fullType = t === 'a' && 'anime' ||
+                     t === 'm' && 'manga' ||
+                     t === 'c' && 'character' ||
+                     t === 'p' && 'people' ||
+                     '';
+    return [fullType, short.slice(1)];
   }
 
-  static augment(url) {
-    const u = new URL(url);
-    u.searchParams.set('include', u.searchParams.get('include') + ',mappings');
-    u.searchParams.set('fields[mappings]', 'externalSite,externalId');
-    return u.href;
-  }
-
-  onload(e) {
-    const json = JSON.parse(e.target.responseText);
-    for (const fn of this._subscribers)
-      fn(json);
+  static toTID(typeId) {
+    return typeId.slice(0, 1) + typeId.split('/')[1];
   }
 }
 
@@ -681,13 +712,52 @@ class Render {
                 'auto-rec' :
                 $createLink({href: `${MAL_URL}recommendations/${type}/${id}-${mainId}`},
                   count + ' rec' + (count > 1 ? 's' : ''))),
-            $createLink({href: `${MAL_URL}${type}/${id}`}, [
+            $createLink({
+              href: `${MAL_URL}${type}/${id}`,
+              onmouseover: Render.findOnKitsu,
+            }, [
               $create('p', name),
               $create('div',
                 $create('img', {src: `${MAL_CDN_URL}images/${type}/${img}${MAL_IMG_EXT}`})),
             ]),
           ]))),
     ]);
+  }
+
+  static async findOnKitsu() {
+    this.onmouseover = null;
+    const typeId = MalTypeId.fromUrl(this.href);
+    const TID = MalTypeId.toTID(typeId);
+    const [type, id] = typeId.split('/');
+    let slug;
+    if (Cache.malKey(TID) in localStorage) {
+      const prefix = Cache.key(type, '');
+      for (const k in localStorage) {
+        if (k.startsWith(prefix) && localStorage[k].endsWith(TID)) {
+          slug = k.slice(prefix.length);
+          break;
+        }
+      }
+    } else {
+      this.style.cursor = 'wait';
+      const mappings = await Get.json(API_URL + 'mappings?' + [
+        'filter[externalId]=' + id,
+        'filter[externalSite]=myanimelist/' + type,
+      ].join('&'));
+      const mappingId = mappings.data[0].id;
+      const mapping = await Get.json(API_URL + `mappings/${mappingId}/item?` + [
+        `fields[${type}]=slug`,
+      ].join('&'));
+      slug = mapping.data.attributes.slug;
+      this.style.cursor = 'pointer';
+    }
+    if (slug) {
+      this.href = `/${type}/${slug}`;
+      this.rel = '';
+      this.target = '';
+    } else {
+      this.setAttribute('type', 'external');
+    }
   }
 }
 
