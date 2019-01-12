@@ -34,7 +34,6 @@ const RX_INTERCEPT = new RegExp(
   '(anime|manga)\\?.*?&include=');
 
 const ID = (me => ({
-  BASE: me,
   SCORE: `${me}:SCORE`,
   USERS: `${me}:USERS`,
   FAVS: `${me}:FAVS`,
@@ -42,12 +41,25 @@ const ID = (me => ({
   RECS: `${me}:RECS`,
 }))(GM_info.script.name);
 
+Object.defineProperties(ID, {
+  all: {
+    value(suffix = '') {
+      return Object.keys(ID)
+        .map(id => '#' + CSS.escape(id) + ' ' + suffix)
+        .join(',');
+    },
+  },
+  me: {
+    value: GM_info.script.name.replace(/\W/g, ''),
+  },
+});
+
 const HOUR = 3600e3;
 const CACHE_DURATION = 4 * HOUR;
 
 
 class App {
-  static async init() {
+  static init() {
     new InterceptXHR().subscribe(App.cook);
     new InterceptHistory().subscribe(App.onUrlChange);
     window.addEventListener('popstate', () => App.onUrlChange());
@@ -61,15 +73,26 @@ class App {
       },
     });
 
-    if (document.readyState !== 'complete')
-      await new Promise(resolve => addEventListener('load', resolve, {once: true}));
-
-    const bgColor = getComputedStyle(document.body).backgroundColor;
+    const getBgColor = () => {
+      const bgColor = getComputedStyle(document.body).backgroundColor;
+      document.head.append(
+        $create('style', `
+          #${CSS.escape(ID.RECS)} {
+            --${ID.me}-bg-color: ${bgColor};
+          }`));
+    };
+    if ($('link[data-theme]')) {
+      getBgColor();
+    } else {
+      setTimeout(() => {
+        $('link[data-theme]').addEventListener('load', getBgColor, {once: true});
+      });
+    }
 
     const RECS_MIN_HEIGHT = 250;
     const RECS_MAX_HEIGHT = RECS_MIN_HEIGHT * 10;
-    const RECS_IMG_WIDTH = Util.num2pct(100 / 4);
-    const RECS_IMG_HEIGHT = Util.num2pct(315 / 225 * 100);
+    const RECS_IMG_WIDTH = Util.num2pct(1 / 4);
+    const RECS_IMG_HEIGHT = Util.num2pct(315 / 225);
     const RECS_IMG_MARGIN = '.5rem';
     const RECS_TITLE_FONT_SIZE = 13;
     const RECS_TRANSITION_TIMING = '.5s .25s';
@@ -80,6 +103,8 @@ class App {
       '<path d="M13,0v2h5.6L6.3,14.3l1.4,1.4L20,3.4V9h2V0H13z M0,4v18h18V9l-2,2v9H2V6h9l2-2H0z"/>' +
       '</svg>' + "')";
     const EXT_LINK_SIZE_EM = 1;
+
+    const KITSU_LINK_SIZE = 40;
 
     let maskImageProp = 'mask-image';
     const extLinkRule =
@@ -98,12 +123,6 @@ class App {
       }` :
       '';
 
-    const allIds = (suffix = '') =>
-      Object.keys(ID)
-        .filter(id => id !== 'BASE')
-        .map(id => '#' + CSS.escape(id) + ' ' + suffix)
-        .join(',');
-
     // language=CSS
     GM_addStyle(`
       ${extLinkRule}
@@ -111,10 +130,10 @@ class App {
         position: static !important;
       }
       #SCORE:hover,
-      ${allIds('a:hover')} {
+      ${ID.all('a:hover')} {
         text-decoration: underline;
       }
-      ${allIds()} {
+      ${ID.all()} {
         transition: opacity .25s;
       }
       #SCORE:not(:first-child),
@@ -195,7 +214,7 @@ class App {
         max-height: ${RECS_MAX_HEIGHT}px;
       }
       #RECS::before {
-        background: linear-gradient(transparent 33%, ${bgColor});
+        background: linear-gradient(transparent 33%, var(--${ID.me}-bg-color));
         position: absolute;
         display: block;
         content: "";
@@ -218,16 +237,17 @@ class App {
       }
       #RECS li {
         list-style: none;
-        margin-right: ${RECS_IMG_MARGIN};
         position: relative;
+        margin-right: ${RECS_IMG_MARGIN};
         width: calc(${RECS_IMG_WIDTH} - ${RECS_IMG_MARGIN});
       }
-      #RECS li > a {
+      #RECS a[type="mal"] {
         width: 100%;
         display: block;
         font-size: ${RECS_TITLE_FONT_SIZE}px;
         margin-top: -.25em;
         margin-bottom: ${RECS_IMG_HEIGHT};
+        transition: opacity .5s;
       }
       #RECS div {
         overflow: hidden;
@@ -252,12 +272,65 @@ class App {
       #RECS li:hover small {
         opacity: 1;
       }
-      #RECS > a {
+      #RECS a[type="mal-recs-all"] {
         font-weight: bold;
       }
       #RECS img {
         margin:  -1px;
         max-width: calc(100% + 2px);;
+      }
+      #RECS button {
+        position: absolute;
+        top: 50%;
+        left: calc(50% - ${KITSU_LINK_SIZE / 2}px);
+        box-sizing: border-box;
+        width: ${KITSU_LINK_SIZE}px;
+        height: ${KITSU_LINK_SIZE}px;
+        margin: 0;
+        padding: 0;
+        border: 2px solid orange;
+        border-radius: ${KITSU_LINK_SIZE}px;
+        background: #fff;
+        box-shadow: 2px 3px 10px 2px #000a;
+        transition: opacity .5s;
+        opacity: 0;
+        z-index: 9;
+      }
+      #RECS button:disabled {
+        filter: grayscale(1) contrast(.5);
+        pointer-events: none;
+      }
+      #RECS li:hover button {
+        opacity: 1;
+      }
+      #RECS li:hover svg {
+        transform: none;
+      }
+      #RECS button:hover {
+        transform: scale(1.05);
+      }
+      #RECS button:hover + a[type="mal"]:not(:hover) {
+        opacity: .25;
+      }
+      #RECS a[type="kitsu"] {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        padding: 4px;
+      }
+      #RECS svg {
+        width: 100%;
+        height: 100%;
+      }
+      #RECS button:not(:disabled) svg {
+        transition: transform .5s;
+        transform: rotateZ(15deg);
+      }
+      @keyframes ${ID.me}-fadein {
+        from { opacity: 0 }
+        to { opacity: 1 }
       }
     `.replace(
       /#([A-Z]+)/g,
@@ -313,13 +386,11 @@ class App {
   }
 
   static async hide() {
-    if (!$id(ID.SCORE))
-      return;
     await Util.nextTick();
     if (!App.busy)
       return;
-    for (const el of $$(`[id^="${CSS.escape(ID.BASE)}:"]`))
-      el.style.setProperty('opacity', '0');
+    for (const el of $$(ID.all()))
+      el.style.opacity = 0;
   }
 }
 
@@ -658,32 +729,28 @@ class Mutant {
 
 class Render {
 
-  static num2str(num) {
-    return num && num.toLocaleString() || '';
-  }
-
   static stats({score: [r, count] = ['N/A'], users, favs, url} = {}) {
     const quarter = r > 0 && Math.max(1, Math.min(4, 1 + (r - .001) / 2.5 >> 0));
     $createLink({
-      textContent: (r > 0 ? Util.num2pct(r * 10) : r) + ' on MAL',
-      title: count && `Scored by ${Render.num2str(count)} users` || '',
+      textContent: (r > 0 ? Util.num2pct(r / 10) : r) + ' on MAL',
+      title: count && `Scored by ${Util.num2str(count)} users` || '',
       href: url,
       id: ID.SCORE,
       parent: $('.media-rating'),
       className: 'media-community-rating' + (quarter ? ' percent-quarter-' + quarter : ''),
-      '*style': '',
+      $style: '',
     });
     $create('span', {
       id: ID.USERS,
       after: $id(ID.SCORE),
-      textContent: Render.num2str(users),
-      '*style': users ? '' : 'opacity:0',
+      textContent: Util.num2str(users),
+      $style: users ? '' : 'opacity:0',
     });
     $create('span', {
       id: ID.FAVS,
       after: $id(ID.USERS),
-      textContent: Render.num2str(favs),
-      '*style': favs ? '' : 'opacity:0',
+      textContent: Util.num2str(favs),
+      $style: favs ? '' : 'opacity:0',
     });
   }
 
@@ -692,8 +759,8 @@ class Render {
       id: ID.CHARS,
       parent: $('.media-summary'),
       className: 'media--related',
-      '*style': chars ? '' : 'opacity:0',
-      '*type': type,
+      $style: chars ? '' : 'opacity:0',
+      $type: type,
     }, [
       $create('div', {className: 'related-media-panel'}, [
         $create('h5', [
@@ -703,7 +770,7 @@ class Render {
           chars.map(([type, [char, charId, charImg], [va, vaId, vaImg] = []]) =>
             $create('li', [
               char &&
-              $create('div', {'*type': 'char'}, [
+              $create('div', {$type: 'char'}, [
                 $createLink({href: MAL_URL + 'character/' + charId}, [
                   charImg &&
                   $create('img', {
@@ -714,7 +781,7 @@ class Render {
                 $create('small', type),
               ]),
               va &&
-              $create('div', {'*type': 'people'}, [
+              $create('div', {$type: 'people'}, [
                 $createLink({href: MAL_URL + 'people/' + vaId}, [
                   vaImg &&
                   $create('img', {src: MAL_CDN_URL + 'images/voiceactors/' + vaImg + '.jpg'}),
@@ -735,23 +802,29 @@ class Render {
     $create('section', {
       id: ID.RECS,
       before: $('.media--reactions'),
-      '*style': recs ? '' : 'opacity:0',
+      $style: recs ? '' : 'opacity:0',
     }, [
       $createLink({
         href: `${url}/${slug}/userrecs`,
         textContent: `${recs.length} title${recs.length > 1 ? 's' : ''} recommended on MAL`,
+        $type: 'mal-recs-all',
       }),
       $create('ul',
         recs.map(([name, id, img, count]) =>
-          $create('li', [
+          $create('li', {
+            onmouseover: Render.kitsuLink,
+          }, [
             $create('small',
               !count ?
                 'auto-rec' :
-                $createLink({href: `${MAL_URL}recommendations/${type}/${id}-${mainId}`},
-                  count + ' rec' + (count > 1 ? 's' : ''))),
+                $createLink({
+                  href: `${MAL_URL}recommendations/${type}/${id}-${mainId}`,
+                  textContent: count + ' rec' + (count > 1 ? 's' : ''),
+                  $type: 'mal-rec',
+                })),
             $createLink({
               href: `${MAL_URL}${type}/${id}`,
-              onmouseover: Render.findOnKitsu,
+              $type: 'mal',
             }, [
               $create('p', name),
               $create('div',
@@ -761,9 +834,34 @@ class Render {
     ]);
   }
 
-  static async findOnKitsu() {
+  static async kitsuLink() {
     this.onmouseover = null;
-    const typeId = MalTypeId.fromUrl(this.href);
+
+    if (!Render.logoWidth) {
+      const logo = $id('LOGO') || Object.assign($('.logo svg'), {id: 'LOGO'});
+      const {width, height} = getComputedStyle(logo);
+      Render.logoWidth = Util.num2pct(parseInt(width) / parseInt(height));
+    }
+
+    let a;
+    const malLink = $('a[type="mal"]', this);
+    const el =
+      $create('button', {
+        before: malLink,
+        $style: 'animation: .5s 1 both ' + ID.me,
+      },
+        a =
+        $create('a', {$type: 'kitsu'},
+          $create('SVG:svg',
+            $create('SVG:use', {
+              href: '#LOGO',
+              height: '100%',
+              width: Render.logoWidth,
+              x: '2',
+            }))));
+    el.addEventListener('animationend', () => el.removeAttribute('style'), {once: true});
+
+    const typeId = MalTypeId.fromUrl(malLink.href);
     const TID = MalTypeId.toTID(typeId);
     const [type, id] = typeId.split('/');
     let slug;
@@ -776,8 +874,8 @@ class Render {
         }
       }
     }
+
     if (!slug) {
-      this.style.cursor = 'wait';
       const mappings = await Get.json(API_URL + 'mappings?' + [
         'filter[externalId]=' + id,
         'filter[externalSite]=myanimelist/' + type,
@@ -788,15 +886,12 @@ class Render {
       ].join('&'));
       slug = mapping.data.attributes.slug;
       Cache.write(type, slug, typeId, {});
-      this.style.cursor = 'pointer';
     }
-    if (slug) {
-      this.href = `/${type}/${slug}`;
-      this.rel = '';
-      this.target = '';
-    } else {
-      this.setAttribute('type', 'external');
-    }
+
+    if (slug)
+      a.href = `/${type}/${slug}`;
+    else
+      el.disabled = true;
   }
 }
 
@@ -820,8 +915,12 @@ class Util {
     return str && Number(str.replace(/,/g, '')) || undefined;
   }
 
+  static num2str(num) {
+    return num && num.toLocaleString() || '';
+  }
+
   static num2pct(n, numDecimals = 2) {
-    return n.toFixed(numDecimals).replace(/\.?0+$/, '') + '%';
+    return (n * 100).toFixed(numDecimals).replace(/\.?0+$/, '') + '%';
   }
 
   static decodeHtml(str) {
@@ -872,6 +971,7 @@ function $text(selector, node = document) {
 }
 
 function $create(tag, props = {}, children) {
+
   if (!children && (
     props instanceof Node ||
     typeof props !== 'object' ||
@@ -880,7 +980,19 @@ function $create(tag, props = {}, children) {
     children = props;
     props = {};
   }
-  const el = props.id && $id(props.id) || document.createElement(tag);
+
+  let ns;
+  const i = tag.indexOf(':');
+  if (i >= 0) {
+    ns = tag.slice(0, i);
+    tag = tag.slice(i + 1);
+  }
+
+  const el = props.id && $id(props.id) || (
+    /^SVG$/i.test(ns) ?
+      document.createElementNS('http://www.w3.org/2000/svg', tag) :
+      document.createElement(tag));
+
   const hasOwnProperty = Object.hasOwnProperty;
   for (const k in props) {
     if (!hasOwnProperty.call(props, k))
@@ -892,15 +1004,18 @@ function $create(tag, props = {}, children) {
       case 'after':
       case 'before':
         continue;
-      default:
-        if (k.startsWith('*')) {
-          if (el.getAttribute(k.slice(1)) !== v)
-            el.setAttribute(k.slice(1), v);
+      default: {
+        const slice = k.startsWith('$') ? 1 : 0;
+        if (slice || ns) {
+          if (el.getAttribute(k.slice(slice)) !== v)
+            el.setAttribute(k.slice(slice), v);
         } else if (el[k] !== v) {
           el[k] = v;
         }
+      }
     }
   }
+
   if (!children)
     children = props.children;
   if (children) {
@@ -911,12 +1026,14 @@ function $create(tag, props = {}, children) {
     else
       el.append(children);
   }
+
   if (props.parent && props.parent !== el.parentNode)
     props.parent.appendChild(el);
   if (props.before && props.before !== el.nextSibling)
     props.before.insertAdjacentElement('beforeBegin', el);
   if (props.after && props.after !== el.previousSibling)
     props.after.insertAdjacentElement('afterEnd', el);
+
   return el;
 }
 
