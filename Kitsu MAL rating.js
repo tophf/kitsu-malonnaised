@@ -28,6 +28,8 @@ const API_URL = 'https://kitsu.io/api/edge/';
 const MAL_URL = 'https://myanimelist.net/';
 const MAL_CDN_URL = 'https://cdn.myanimelist.net/';
 let MAL_IMG_EXT = '.jpg';
+// maximum number of recs present in a MAL page initially
+const MAL_RECS_LIMIT = 24;
 
 const RX_INTERCEPT = new RegExp(
   '^' + API_URL.replace(/\./g, '\\.') +
@@ -800,6 +802,7 @@ class Render {
 
   static recommendations({recs, url, type, slug}) {
     const mainId = url.match(/\d+/)[0];
+    const num = recs.length;
     $create('section', {
       id: ID.RECS,
       before: $('.media--reactions'),
@@ -807,7 +810,8 @@ class Render {
     }, [
       $createLink({
         href: `${url}/${slug}/userrecs`,
-        textContent: `${recs.length} title${recs.length > 1 ? 's' : ''} recommended on MAL`,
+        textContent: num + (num === MAL_RECS_LIMIT ? '+ ' : '') +
+                     `title${num > 1 ? 's' : ''} recommended on MAL`,
         $type: 'mal-recs-all',
       }),
       $create('ul',
