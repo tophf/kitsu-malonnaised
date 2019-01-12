@@ -169,7 +169,7 @@ class App {
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
-        max-width: calc(100% - 2em); /* room for the ext link icon */
+        max-width: calc(100% - 2 * ${EXT_LINK_SIZE_EM}em); /* room for the ext link icon */
         vertical-align: sub;
       }
       #CHARS div[type="people"]:only-child,
@@ -243,7 +243,7 @@ class App {
         margin: 0;
         display: inline-block;
         vertical-align: sub;
-        max-width: calc(100% - 1.5em);
+        max-width: calc(100% - 1.5 * ${EXT_LINK_SIZE_EM}em);
       }
       #RECS small {
         font-size: 10px;
@@ -772,7 +772,8 @@ class Render {
           break;
         }
       }
-    } else {
+    }
+    if (!slug) {
       this.style.cursor = 'wait';
       const mappings = await Get.json(API_URL + 'mappings?' + [
         'filter[externalId]=' + id,
@@ -783,6 +784,7 @@ class Render {
         `fields[${type}]=slug`,
       ].join('&'));
       slug = mapping.data.attributes.slug;
+      Cache.write(type, slug, typeId, {});
       this.style.cursor = 'pointer';
     }
     if (slug) {
