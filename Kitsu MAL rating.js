@@ -68,8 +68,9 @@ class App {
 
     const RECS_MIN_HEIGHT = 250;
     const RECS_MAX_HEIGHT = RECS_MIN_HEIGHT * 10;
-    const RECS_IMG_WIDTH = 180;
-    const RECS_IMG_HEIGHT = 255;
+    const RECS_IMG_WIDTH = Util.num2pct(100 / 4);
+    const RECS_IMG_HEIGHT = Util.num2pct(315 / 225 * 100);
+    const RECS_IMG_MARGIN = '.5rem';
     const RECS_TITLE_FONT_SIZE = 13;
     const RECS_TRANSITION_TIMING = '.5s .25s';
 
@@ -199,9 +200,9 @@ class App {
         display: block;
         content: "";
         width: 100%;
-        z-index: 999;
-        min-height: ${RECS_MIN_HEIGHT}px;
+        min-height: 100%;
         pointer-events: none;
+        z-index: 999;
         transition: min-height ${RECS_TRANSITION_TIMING},
                     opacity ${RECS_TRANSITION_TIMING};
       }
@@ -212,25 +213,27 @@ class App {
       #RECS ul {
         display: flex;
         flex-wrap: wrap;
-        margin: 0;
+        margin: 0 -${RECS_IMG_MARGIN} 0 0;
         padding: 0;
       }
       #RECS li {
         list-style: none;
-        margin-right: .5rem;
+        margin-right: ${RECS_IMG_MARGIN};
+        position: relative;
+        width: calc(${RECS_IMG_WIDTH} - ${RECS_IMG_MARGIN});
       }
       #RECS li > a {
-        width: ${RECS_IMG_WIDTH}px;
+        width: 100%;
         display: block;
         font-size: ${RECS_TITLE_FONT_SIZE}px;
         margin-top: -.25em;
-        margin-bottom: ${RECS_IMG_HEIGHT + 5}px;
+        margin-bottom: ${RECS_IMG_HEIGHT};
       }
       #RECS div {
-        width: ${RECS_IMG_WIDTH}px;
-        height: ${RECS_IMG_HEIGHT}px;
         overflow: hidden;
         position: absolute;
+        top: 3em;
+        bottom: 0;
       }
       #RECS p {
         white-space: nowrap;
@@ -240,7 +243,7 @@ class App {
         margin: 0;
         display: inline-block;
         vertical-align: sub;
-        max-width: ${RECS_IMG_WIDTH - EXT_LINK_SIZE_EM * 1.5 * RECS_TITLE_FONT_SIZE}px;
+        max-width: calc(100% - 1.5em);
       }
       #RECS small {
         font-size: 10px;
@@ -254,7 +257,7 @@ class App {
       }
       #RECS img {
         margin:  -1px;
-        max-width: ${RECS_IMG_WIDTH + 2}px;
+        max-width: calc(100% + 2px);;
       }
     `.replace(
       /#([A-Z]+)/g,
@@ -661,9 +664,8 @@ class Render {
 
   static stats({score: [r, count] = ['N/A'], users, favs, url} = {}) {
     const quarter = r > 0 && Math.max(1, Math.min(4, 1 + (r - .001) / 2.5 >> 0));
-    const str = (r > 0 ? (r * 10).toFixed(2).replace(/\.?0+$/, '') + '%' : r) + ' on MAL';
     $createLink({
-      textContent: str,
+      textContent: (r > 0 ? Util.num2pct(r * 10) : r) + ' on MAL',
       title: count && `Scored by ${Render.num2str(count)} users` || '',
       href: url,
       id: ID.SCORE,
@@ -811,6 +813,10 @@ class Util {
 
   static str2num(str) {
     return str && Number(str.replace(/,/g, '')) || undefined;
+  }
+
+  static num2pct(n, numDecimals = 2) {
+    return n.toFixed(numDecimals).replace(/\.?0+$/, '') + '%';
   }
 
   static decodeHtml(str) {
