@@ -737,7 +737,10 @@ class Render {
       before: $('.media--reactions'),
       '*style': recs ? '' : 'opacity:0',
     }, [
-      $createLink({href: `${url}/${slug}/userrecs`}, 'Recommendations on MAL'),
+      $createLink({
+        href: `${url}/${slug}/userrecs`,
+        textContent: `${recs.length} title${recs.length > 1 ? 's' : ''} recommended on MAL`,
+      }),
       $create('ul',
         recs.map(([name, id, img, count]) =>
           $create('li', [
