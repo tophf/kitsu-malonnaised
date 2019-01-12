@@ -247,13 +247,18 @@ class App {
         font-size: ${RECS_TITLE_FONT_SIZE}px;
         margin-top: -.25em;
         margin-bottom: ${RECS_IMG_HEIGHT};
-        transition: opacity .5s;
       }
       #RECS div {
         overflow: hidden;
         position: absolute;
         top: 3em;
+        left: 0;
+        right: 0;
         bottom: 0;
+        background-size: calc(100% + 2px);
+        background-position: -1px -1px;
+        background-repeat: no-repeat;
+        transition: opacity .5s;
       }
       #RECS p {
         white-space: nowrap;
@@ -275,10 +280,6 @@ class App {
       #RECS a[type="mal-recs-all"] {
         font-weight: bold;
       }
-      #RECS img {
-        margin:  -1px;
-        max-width: calc(100% + 2px);;
-      }
       #RECS button {
         position: absolute;
         top: 50%;
@@ -292,7 +293,7 @@ class App {
         border-radius: ${KITSU_LINK_SIZE}px;
         background: #fff;
         box-shadow: 2px 3px 10px 2px #000a;
-        transition: opacity .5s;
+        transition: opacity .5s, transform .5s cubic-bezier(0.18, 2.14, 0.02, 0.37);
         opacity: 0;
         z-index: 9;
       }
@@ -307,9 +308,9 @@ class App {
         transform: none;
       }
       #RECS button:hover {
-        transform: scale(1.05);
+        transform: scale(1.25);
       }
-      #RECS button:hover + a[type="mal"]:not(:hover) {
+      #RECS button:hover + a[type="mal"]:not(:hover) div {
         opacity: .25;
       }
       #RECS a[type="kitsu"] {
@@ -827,8 +828,10 @@ class Render {
               $type: 'mal',
             }, [
               $create('p', name),
-              $create('div',
-                $create('img', {src: `${MAL_CDN_URL}images/${type}/${img}${MAL_IMG_EXT}`})),
+              $create('div', {
+                $style: 'background-image:' +
+                        `url(${MAL_CDN_URL}images/${type}/${img}${MAL_IMG_EXT})`,
+              }),
             ]),
           ]))),
     ]);
@@ -848,7 +851,7 @@ class Render {
     const el =
       $create('button', {
         before: malLink,
-        $style: 'animation: .5s 1 both ' + ID.me,
+        $style: `animation: .5s 1 both ${ID.me}-fadein`,
       },
         a =
         $create('a', {$type: 'kitsu'},
