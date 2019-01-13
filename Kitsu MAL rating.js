@@ -37,26 +37,27 @@ const RX_INTERCEPT = new RegExp(
 
 const KITSU_GRAY_LINK_CLASS = 'import-title';
 
-const ID = (me => ({
-  SCORE: `${me}:SCORE`,
-  USERS: `${me}:USERS`,
-  FAVS: `${me}:FAVS`,
-  CHARS: `${me}:CHARS`,
-  RECS: `${me}:RECS`,
-}))(GM_info.script.name);
-
-Object.defineProperties(ID, {
+const ID = (name => Object.defineProperties({
+  SCORE: `${name}:SCORE`,
+  USERS: `${name}:USERS`,
+  FAVS: `${name}:FAVS`,
+  CHARS: `${name}:CHARS`,
+  RECS: `${name}:RECS`,
+}, {
+  prefix: {
+    value: CSS.escape(name + ':'),
+  },
+  me: {
+    value: name.replace(/\W/g, ''),
+  },
   all: {
     value(suffix = '') {
       return Object.keys(ID)
-        .map(id => '#' + CSS.escape(id) + ' ' + suffix)
+        .map(id => `#${ID.prefix}${id} ${suffix}`)
         .join(',');
     },
   },
-  me: {
-    value: GM_info.script.name.replace(/\W/g, ''),
-  },
-});
+}))(GM_info.script.name);
 
 const HOUR = 3600e3;
 const CACHE_DURATION = 4 * HOUR;
@@ -203,12 +204,20 @@ class App {
         max-width: calc(100% - 2 * ${EXT_LINK_SIZE_EM}em); /* room for the ext link icon */
         vertical-align: sub;
       }
-      #CHARS div[mal="people"]:only-child,
-      #CHARS img {
+      #CHARS a div {
+        overflow: hidden;
         width: 100%;
       }
-      #CHARS div[mal]:not(:only-child) a > :first-child:not(img) {
-        margin-top: 33%;
+      #CHARS div[mal="people"]:only-child {
+        width: 100%;
+      }
+      #CHARS img {
+        width: calc(100% + 2px);
+        max-width: none;
+        margin: -1px;
+      }
+      #CHARS div[mal]:not(:only-child) a > :first-child:not(div) {
+        margin-top: 60%;
       }
       #CHARS small {
         display: block;
@@ -253,6 +262,12 @@ class App {
         margin-right: ${RECS_IMG_MARGIN};
         width: calc(${RECS_IMG_WIDTH} - ${RECS_IMG_MARGIN});
       }
+      #RECS li[mal="auto-rec"] {
+        opacity: .25;
+      }
+      #RECS li[mal="auto-rec"]:hover {
+        opacity: 1;
+      }
       #RECS a[mal="title"] {
         width: 100%;
         display: block;
@@ -271,7 +286,13 @@ class App {
         background-size: calc(100% + 2px);
         background-position: -1px -1px;
         background-repeat: no-repeat;
-        transition: opacity .5s;
+        transition: opacity .5s, filter .5s;
+      }
+      #RECS li[mal="auto-rec"] div {
+        filter: grayscale(1);
+      }
+      #RECS li[mal="auto-rec"]:hover div {
+        filter: none;
       }
       #RECS span {
         white-space: nowrap;
@@ -347,10 +368,12 @@ class App {
         from { opacity: 0 }
         to { opacity: 1 }
       }
-    `.replace(
-      /#([A-Z]+)/g,
-      (_, id) => `#${CSS.escape(ID[id])}`)
-    );
+    `
+      // language=JS
+    .replace(
+      new RegExp(`#(?=${Object.keys(ID).join('|')})\\b`, 'g'),
+      '#' + ID.prefix
+    ));
   }
 
   static async onUrlChange(path = location.pathname) {
@@ -822,9 +845,10 @@ class Render {
               $create('div', {$mal: 'char'}, [
                 $createLink({$mal: 'char', href: MAL_URL + 'character/' + charId}, [
                   charImg &&
-                  $create('img', {
-                    src: `${MAL_CDN_URL}images/characters/${charImg}${MAL_IMG_EXT}`,
-                  }),
+                  $create('div',
+                    $create('img', {
+                      src: `${MAL_CDN_URL}images/characters/${charImg}${MAL_IMG_EXT}`,
+                    })),
                   $create('span', char),
                 ]),
                 $create('small', type),
@@ -833,7 +857,8 @@ class Render {
               $create('div', {$mal: 'people'}, [
                 $createLink({$mal: 'people', href: MAL_URL + 'people/' + vaId}, [
                   vaImg &&
-                  $create('img', {src: MAL_CDN_URL + 'images/voiceactors/' + vaImg + '.jpg'}),
+                  $create('div',
+                    $create('img', {src: MAL_CDN_URL + 'images/voiceactors/' + vaImg + '.jpg'})),
                   $create('span', va),
                 ]),
                 !char &&
@@ -856,15 +881,17 @@ class Render {
     }, [
       $createLink({
         href: `${url}/${slug}/userrecs`,
-        textContent: num + (num === MAL_RECS_LIMIT ? '+ ' : '') +
-                     `title${num > 1 ? 's' : ''} recommended on MAL`,
+        textContent: num + (num === MAL_RECS_LIMIT ? '+' : '') +
+                     ` title${num > 1 ? 's' : ''} recommended on MAL`,
         $mal: 'recs-all',
       }),
       $create('ul',
         recs.map(([name, id, img, count]) =>
-          $create('li', {
+          $create('li', Object.assign({
             onmouseover: Render.kitsuLink,
-          }, [
+          }, !count && {
+            $mal: 'auto-rec',
+          }), [
             $create('small',
               !count ?
                 'auto-rec' :
