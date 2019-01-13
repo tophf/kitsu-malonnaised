@@ -35,6 +35,8 @@ const RX_INTERCEPT = new RegExp(
   '^' + API_URL.replace(/\./g, '\\.') +
   '(anime|manga)\\?.*?&include=');
 
+const KITSU_GRAY_LINK_CLASS = 'import-title';
+
 const ID = (me => ({
   SCORE: `${me}:SCORE`,
   USERS: `${me}:USERS`,
@@ -75,21 +77,14 @@ class App {
       },
     });
 
-    const getBgColor = () => {
+    Mutant.gotTheme().then(() => {
       const bgColor = getComputedStyle(document.body).backgroundColor;
       document.head.append(
         $create('style', `
           #${CSS.escape(ID.RECS)} {
             --${ID.me}-bg-color: ${bgColor};
           }`));
-    };
-    if ($('link[data-theme]')) {
-      getBgColor();
-    } else {
-      setTimeout(() => {
-        $('link[data-theme]').addEventListener('load', getBgColor, {once: true});
-      });
-    }
+    });
 
     const RECS_MIN_HEIGHT = 250;
     const RECS_MAX_HEIGHT = RECS_MIN_HEIGHT * 10;
@@ -110,20 +105,28 @@ class App {
 
     let maskImageProp = 'mask-image';
     const extLinkRule =
-      CSS.supports(maskImageProp, EXT_LINK) ||
-      CSS.supports((maskImageProp = '-webkit-' + maskImageProp), EXT_LINK) ?
-      // language=CSS
-      `a[href^="http"]::after {
-        content: "\\a0";
-        ${maskImageProp}: ${EXT_LINK};
-        background-color: currentColor;
-        margin-left: ${EXT_LINK_SIZE_EM / 2}em;
-        width: ${EXT_LINK_SIZE_EM}em;
-        height: ${EXT_LINK_SIZE_EM}em;
-        display: inline-block;
-        vertical-align: text-top;
-      }` :
-      '';
+      !CSS.supports(maskImageProp, EXT_LINK) &&
+      !CSS.supports((maskImageProp = '-webkit-' + maskImageProp), EXT_LINK) ?
+        '' :
+        // language=CSS
+        `
+        a[href^="${MAL_URL}"]::after,
+        a[href^="${MAL_CDN_URL}"]::after {
+          content: "\\a0";
+          ${maskImageProp}: ${EXT_LINK};
+          background-color: currentColor;
+          margin-left: ${EXT_LINK_SIZE_EM / 2}em;
+          width: ${EXT_LINK_SIZE_EM}em;
+          height: ${EXT_LINK_SIZE_EM}em;
+          display: inline-block;
+          vertical-align: text-top;
+          opacity: .5;
+        }
+        a[href^="${MAL_URL}"]:hover::after,
+        a[href^="${MAL_CDN_URL}"]:hover::after {
+          opacity: 1;
+        }
+        `;
 
     // language=CSS
     GM_addStyle(`
@@ -262,7 +265,7 @@ class App {
         background-repeat: no-repeat;
         transition: opacity .5s;
       }
-      #RECS p {
+      #RECS span {
         white-space: nowrap;
         overflow: hidden;
         text-overflow: ellipsis;
@@ -310,7 +313,7 @@ class App {
         transform: none;
       }
       #RECS button:hover {
-        transform: scale(1.25);
+        transform: scale(1.5);
       }
       #RECS button:hover + a[type="mal"]:not(:hover) div {
         opacity: .25;
@@ -689,6 +692,37 @@ class Mutant {
     return new Promise(Mutant.subscribe);
   }
 
+  static async gotTheme() {
+    const selector = 'link[data-theme]';
+    const head =
+      document.head ||
+      new Promise(resolve => {
+        new MutationObserver((_, ob) => {
+          const head = document.head;
+          if (head) {
+            ob.disconnect();
+            resolve(head);
+          }
+        }).observe(document.documentElement, {childList: true});
+      });
+    const el =
+      head.querySelector(selector) ||
+      await new Promise(resolve => {
+        new MutationObserver((mutations, ob) => {
+          const el = head.querySelector(selector);
+          if (el) {
+            ob.disconnect();
+            resolve(el);
+          }
+        }).observe(document.head, {childList: true});
+      });
+    try {
+      el.sheet.cssRules; // eslint-disable-line no-unused-expressions
+    } catch (e) {
+      await new Promise(done => el.addEventListener('load', done, {once: true}));
+    }
+  }
+
   static subscribe(fn) {
     Mutant._state.subscribers.add(fn);
     if (!Mutant._state.active)
@@ -825,13 +859,15 @@ class Render {
                 $createLink({
                   href: `${MAL_URL}recommendations/${type}/${id}-${mainId}`,
                   textContent: count + ' rec' + (count > 1 ? 's' : ''),
+                  className: KITSU_GRAY_LINK_CLASS,
                   $type: 'mal-rec',
                 })),
             $createLink({
               href: `${MAL_URL}${type}/${id}`,
+              className: KITSU_GRAY_LINK_CLASS,
               $type: 'mal',
             }, [
-              $create('p', name),
+              $create('span', name),
               $create('div', {
                 $style: 'background-image:' +
                         `url(${MAL_CDN_URL}images/${type}/${img}${MAL_IMG_EXT})`,
