@@ -110,8 +110,7 @@ class App {
         '' :
         // language=CSS
         `
-        a[href^="${MAL_URL}"]::after,
-        a[href^="${MAL_CDN_URL}"]::after {
+        a[mal]::after {
           content: "\\a0";
           ${maskImageProp}: ${EXT_LINK};
           background-color: currentColor;
@@ -119,11 +118,13 @@ class App {
           width: ${EXT_LINK_SIZE_EM}em;
           height: ${EXT_LINK_SIZE_EM}em;
           display: inline-block;
-          vertical-align: text-top;
           opacity: .5;
         }
-        a[href^="${MAL_URL}"]:hover::after,
-        a[href^="${MAL_CDN_URL}"]:hover::after {
+        #RECS a[mal="recs-all"]::after,
+        a[mal="rec"]::after {
+          vertical-align: text-top;
+        }
+        a[mal]:hover::after {
           opacity: 1;
         }
         `;
@@ -157,35 +158,35 @@ class App {
       #CHARS h5 a {
         font: inherit;
       }
-      #CHARS[type="anime"] li div {
+      #CHARS[mal="anime"] li div {
         width: 50%;
         display: inline-block;
       }
-      #CHARS[type="manga"] li {
+      #CHARS[mal="manga"] li {
         width: calc(50% - 4px);
         display: inline-block;
       }
-      #CHARS[type="manga"] li:nth-child(odd) {
+      #CHARS[mal="manga"] li:nth-child(odd) {
         margin-right: 8px;
       }
-      #CHARS div[type="people"] {
+      #CHARS div[mal="people"] {
         opacity: .5;
         will-change: opacity;
         transition: opacity .25s .1s;
       }
-      #CHARS div[type="people"] img {
+      #CHARS div[mal="people"] img {
         opacity: .3;
         will-change: opacity;
         transition: opacity .25s .1s;
       }
-      #CHARS:hover div[type="people"] img {
+      #CHARS:hover div[mal="people"] img {
         opacity: .6;
       }
-      #CHARS div[type="people"]:hover,
-      #CHARS div[type="people"] img:hover {
+      #CHARS div[mal="people"]:hover,
+      #CHARS div[mal="people"] img:hover {
         opacity: 1;
       }
-      #CHARS div[type]:first-child a {
+      #CHARS div[mal]:first-child a {
         font-weight: bold;
       }
       #CHARS span {
@@ -196,11 +197,11 @@ class App {
         max-width: calc(100% - 2 * ${EXT_LINK_SIZE_EM}em); /* room for the ext link icon */
         vertical-align: sub;
       }
-      #CHARS div[type="people"]:only-child,
+      #CHARS div[mal="people"]:only-child,
       #CHARS img {
         width: 100%;
       }
-      #CHARS div[type]:not(:only-child) a > :first-child:not(img) {
+      #CHARS div[mal]:not(:only-child) a > :first-child:not(img) {
         margin-top: 33%;
       }
       #CHARS small {
@@ -246,10 +247,11 @@ class App {
         margin-right: ${RECS_IMG_MARGIN};
         width: calc(${RECS_IMG_WIDTH} - ${RECS_IMG_MARGIN});
       }
-      #RECS a[type="mal"] {
+      #RECS a[mal="title"] {
         width: 100%;
         display: block;
         font-size: ${RECS_TITLE_FONT_SIZE}px;
+        font-weight: bolder;
         margin-top: -.25em;
         margin-bottom: ${RECS_IMG_HEIGHT};
       }
@@ -282,7 +284,7 @@ class App {
       #RECS li:hover small {
         opacity: 1;
       }
-      #RECS a[type="mal-recs-all"] {
+      #RECS a[mal="recs-all"] {
         font-weight: bold;
       }
       #RECS button {
@@ -315,10 +317,10 @@ class App {
       #RECS button:hover {
         transform: scale(1.5);
       }
-      #RECS button:hover + a[type="mal"]:not(:hover) div {
+      #RECS button:hover + a[mal="title"]:not(:hover) div {
         opacity: .25;
       }
-      #RECS a[type="kitsu"] {
+      #RECS button a {
         position: absolute;
         top: 0;
         left: 0;
@@ -797,18 +799,22 @@ class Render {
       parent: $('.media-summary'),
       className: 'media--related',
       $style: chars ? '' : 'opacity:0',
-      $type: type,
+      $mal: type,
     }, [
       $create('div', {className: 'related-media-panel'}, [
         $create('h5', [
-          $createLink({href: `${url}/${slug}/characters`}, 'Characters on MAL'),
+          $createLink({
+            href: `${url}/${slug}/characters`,
+            textContent: 'Characters on MAL',
+            $mal: 'chars-all',
+          }),
         ]),
         $create('ul',
           chars.map(([type, [char, charId, charImg], [va, vaId, vaImg] = []]) =>
             $create('li', [
               char &&
-              $create('div', {$type: 'char'}, [
-                $createLink({href: MAL_URL + 'character/' + charId}, [
+              $create('div', {$mal: 'char'}, [
+                $createLink({$mal: 'char', href: MAL_URL + 'character/' + charId}, [
                   charImg &&
                   $create('img', {
                     src: `${MAL_CDN_URL}images/characters/${charImg}${MAL_IMG_EXT}`,
@@ -818,8 +824,8 @@ class Render {
                 $create('small', type),
               ]),
               va &&
-              $create('div', {$type: 'people'}, [
-                $createLink({href: MAL_URL + 'people/' + vaId}, [
+              $create('div', {$mal: 'people'}, [
+                $createLink({$mal: 'people', href: MAL_URL + 'people/' + vaId}, [
                   vaImg &&
                   $create('img', {src: MAL_CDN_URL + 'images/voiceactors/' + vaImg + '.jpg'}),
                   $create('span', va),
@@ -846,7 +852,7 @@ class Render {
         href: `${url}/${slug}/userrecs`,
         textContent: num + (num === MAL_RECS_LIMIT ? '+ ' : '') +
                      `title${num > 1 ? 's' : ''} recommended on MAL`,
-        $type: 'mal-recs-all',
+        $mal: 'recs-all',
       }),
       $create('ul',
         recs.map(([name, id, img, count]) =>
@@ -860,12 +866,12 @@ class Render {
                   href: `${MAL_URL}recommendations/${type}/${id}-${mainId}`,
                   textContent: count + ' rec' + (count > 1 ? 's' : ''),
                   className: KITSU_GRAY_LINK_CLASS,
-                  $type: 'mal-rec',
+                  $mal: 'rec',
                 })),
             $createLink({
               href: `${MAL_URL}${type}/${id}`,
               className: KITSU_GRAY_LINK_CLASS,
-              $type: 'mal',
+              $mal: 'title',
             }, [
               $create('span', name),
               $create('div', {
@@ -887,14 +893,14 @@ class Render {
     }
 
     let a;
-    const malLink = $('a[type="mal"]', this);
+    const malLink = $('a[mal="title"]', this);
     const el =
       $create('button', {
         before: malLink,
         $style: `animation: .5s 1 both ${ID.me}-fadein`,
       },
         a =
-        $create('a', {$type: 'kitsu'},
+        $create('a',
           $create('SVG:svg',
             $create('SVG:use', {
               href: '#LOGO',
