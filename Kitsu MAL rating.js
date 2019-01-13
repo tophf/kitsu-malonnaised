@@ -384,7 +384,7 @@ class App {
   }
 
   static async plant(data = {}) {
-    await Mutant.ogUrl(data);
+    await Mutant.gotUrl(data);
     Render.stats(data);
     Render.characters(data);
     Render.recommendations(data);
@@ -681,7 +681,7 @@ class MalTypeId {
 
 class Mutant {
 
-  static ogUrl(data) {
+  static gotUrl(data) {
     const url = TypeSlug.toUrl(data);
     const el = $('meta[property="og:url"]');
     if (el && el.content === url)
