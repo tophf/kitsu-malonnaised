@@ -319,9 +319,6 @@ class App {
       #RECS li:hover small {
         opacity: 1;
       }
-      #RECS a[mal="recs-all"] {
-        font-weight: bold;
-      }
       #RECS button {
         position: absolute;
         top: 50%;
