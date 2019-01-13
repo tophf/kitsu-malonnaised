@@ -37,6 +37,9 @@ const RX_INTERCEPT = new RegExp(
 
 const KITSU_GRAY_LINK_CLASS = 'import-title';
 
+const DB_NAME = 'MALonnaise';
+const DB_STORE_NAME = 'data';
+
 const ID = (name => Object.defineProperties({
   SCORE: `${name}:SCORE`,
   USERS: `${name}:USERS`,
@@ -44,28 +47,33 @@ const ID = (name => Object.defineProperties({
   CHARS: `${name}:CHARS`,
   RECS: `${name}:RECS`,
 }, {
-  prefix: {
-    value: CSS.escape(name + ':'),
-  },
   me: {
     value: name.replace(/\W/g, ''),
   },
-  all: {
+  selectorPrefix: {
+    value: CSS.escape(name + ':'),
+  },
+  selectAll: {
     value(suffix = '') {
       return Object.keys(ID)
-        .map(id => `#${ID.prefix}${id} ${suffix}`)
+        .map(id => `#${ID.selectorPrefix}${id} ${suffix}`)
         .join(',');
     },
   },
 }))(GM_info.script.name);
 
 const HOUR = 3600e3;
-const CACHE_DURATION = 4 * HOUR;
+const CACHE_DURATION = 24 * HOUR;
 
 
+/**
+ * @property {String} path
+ */
 class App {
-  static init() {
-    new InterceptXHR().subscribe(App.cook);
+
+  static async init() {
+    await Cache.init();
+    new InterceptXHR().subscribe(v => App.cook(v).then(App.plant));
     new InterceptHistory().subscribe(App.onUrlChange);
     window.addEventListener('popstate', () => App.onUrlChange());
     App.onUrlChange();
@@ -136,10 +144,10 @@ class App {
         position: static !important;
       }
       #SCORE:hover,
-      ${ID.all('a:hover')} {
+      ${ID.selectAll('a:hover')} {
         text-decoration: underline;
       }
-      ${ID.all()} {
+      ${ID.selectAll()} {
         transition: opacity .25s;
       }
       #SCORE:not(:first-child),
@@ -372,7 +380,7 @@ class App {
       // language=JS
     .replace(
       new RegExp(`#(?=${Object.keys(ID).join('|')})\\b`, 'g'),
-      '#' + ID.prefix
+      '#' + ID.selectorPrefix
     ));
   }
 
@@ -380,15 +388,17 @@ class App {
     const [type, slug] = TypeSlug.fromUrl(path);
     if (!slug)
       return;
-    let {url, data} = Cache.read(type, slug) || {};
-    if (!data)
+    let data = await Cache.read(type, slug);
+    if (!data) {
       App.hide();
-    if (url && !data)
-      data = await Mal.scavenge(url);
-    if (data)
-      App.plant(Object.assign({url, type, slug}, data));
-    else
-      await App.cook(await App.inquire(type, slug));
+      data = await App.inquire(type, slug).then(App.cook);
+    } else if (data && data.expired) {
+      App.hide();
+      const {TID} = data;
+      data = await Mal.scavenge(MalTypeId.toUrl(TID));
+      data.TID = TID;
+    }
+    App.plant(data);
   }
 
   static inquire(type, slug) {
@@ -405,20 +415,31 @@ class App {
     if (!url)
       return;
     const {type, attributes: {slug}} = payload.data[0];
-    let {data} = Cache.read(type, slug) || {};
-    if (!data) {
-      App.hide();
-      data = await Mal.scavenge(url);
-      Cache.write(type, slug, url.slice(MAL_URL.length), data);
-    }
-    App.plant(Object.assign({type, slug, url}, data));
+    let data = await Cache.read(type, slug);
+    if (data && !data.expired && data.score)
+      return data;
+    App.hide();
+    data = await Mal.scavenge(url);
+    data.TID = MalTypeId.urlToTID(url);
+    Cache.write(type, slug, data);
+    return data;
   }
 
-  static async plant(data = {}) {
-    await Mutant.gotUrl(data);
+  static async plant(data) {
+    if (!data || data.path === App.path)
+      return;
+
+    const [type, slug] = data.path.split('/');
+    const url = MalTypeId.toUrl(data.TID);
+    Object.assign(data, {type, slug, url});
+
+    await Mutant.gotSlugged(data);
+
     Render.stats(data);
     Render.characters(data);
     Render.recommendations(data);
+
+    App.path = data.path;
     App.busy = false;
   }
 
@@ -426,99 +447,42 @@ class App {
     await Util.nextTick();
     if (!App.busy)
       return;
-    for (const el of $$(ID.all()))
+    for (const el of $$(ID.selectAll()))
       el.style.opacity = 0;
   }
 }
 
 
+/**
+ * @property {IDB} db
+ */
 class Cache {
-  /**
-   * @param {String} type
-   * @param {String} slug
-   * @return {{url:String, data?:Object}|void}
-   */
-  static read(type, slug) {
-    const key = Cache.key(type, slug);
-    const [time, TID] = (localStorage[key] || '').split(' ');
 
-    if (!time || !TID)
-      return;
-
-    const url = MAL_URL + MalTypeId.fromTID(TID).join('/');
-
-    if (Cache.expired(time))
-      return {url};
-
-    const malKey = Cache.malKey(TID);
-    try {
-      const data = Cache.unpackProps(localStorage[malKey]);
-      return {url, data};
-    } catch (e) {
-      delete localStorage[malKey];
-      return {url};
-    }
-  }
-
-  static async write(type, slug, malTypeId, data) {
-    const key = Cache.key(type, slug);
-    const TID = MalTypeId.toTID(malTypeId);
-    localStorage[key] = Math.floor(Date.now() / 60e3).toString(36) + ' ' + TID;
-
-    const malKey = Cache.malKey(TID);
-    if (Util.isEmpty(data)) {
-      delete localStorage[malKey];
-      return;
-    }
-    await Util.nextTick();
-    const dataStr = Object.entries(data).map(Cache.packProp).join('\n');
-    localStorage[malKey] = dataStr;
-  }
-
-  static packProp([k, v]) {
-    if (typeof v !== 'object')
-      return k + '\t' + v;
-    const str = JSON.stringify(v);
-    return str.length > 50 ?
-      k + '|z\t' + LZStringUnsafe.compressToUTF16(str) :
-      k + '|j\t' + str;
-  }
-
-  static unpackProps(dataStr) {
-    const data = {};
-    for (const str of dataStr.split('\n')) {
-      const i = str.indexOf('\t');
-      const [k, fmt] = str.slice(0, i).split('|');
-      let v = str.slice(i + 1);
-      switch (fmt) {
-        case 'z':
-          v = LZStringUnsafe.decompressFromUTF16(v);
-          // fallthrough to 'j'
-        case 'j':
-          v = JSON.parse(v);
-          break;
-        default: {
-          const num = Number(v);
-          if (!isNaN(num))
-            v = num;
-          break;
+  static async init() {
+    Cache.db = new IDB(DB_NAME, DB_STORE_NAME);
+    await Cache.db.open({
+      onupgradeneeded(e) {
+        if (!e.oldVersion) {
+          const store = e.target.result.createObjectStore(DB_STORE_NAME, {keyPath: 'path'});
+          store.createIndex('TID', 'TID', {unique: true});
+          store.createIndex('time', 'time', {unique: false});
         }
-      }
-      data[k] = v;
-    }
+      },
+    });
+  }
+
+  static async read(type, slug) {
+    const path = type + '/' + slug;
+    const data = await Cache.db.get(path);
+    if (data && Date.now() - data.time > CACHE_DURATION)
+      data.expired = true;
     return data;
   }
 
-  static expired(time) {
-    return Date.now() - parseInt(time, 36) * 60e3 > CACHE_DURATION;
-  }
-
-  static key(type, slug) {
-    return `:${type[0]}:${slug}`;
-  }
-
-  static malKey(malTID) {
-    return ':MAL:' + malTID;
+  static async write(type, slug, data) {
+    data.path = type + '/' + slug;
+    data.time = Date.now();
+    return Cache.db.put(data);
   }
 }
 
@@ -549,6 +513,54 @@ class Get {
           resolve(doc);
         },
       });
+    });
+  }
+}
+
+
+/**
+ * @property {IDBDatabase} db
+ */
+class IDB {
+
+  constructor(name, storeName) {
+    this.name = name;
+    this.storeName = storeName;
+  }
+
+  open(events) {
+    return new Promise(resolve => {
+      Object.assign(indexedDB.open(this.name), {
+        onsuccess: e => {
+          this.db = e.target.result;
+          resolve(this.db);
+        },
+      }, events);
+    });
+  }
+
+  get(key, index) {
+    return this.op('get', {args: [key], index});
+  }
+
+  delete(key) {
+    return this.op('delete', {args: [key], write: true});
+  }
+
+  put(value) {
+    return this.op('put', {args: [value], write: true});
+  }
+
+  op(method, {args, index, write}) {
+    return new Promise((resolve, reject) => {
+      let op = this.db
+        .transaction(this.storeName, write ? 'readwrite' : 'readonly')
+        .objectStore(this.storeName);
+      if (index)
+        op = op.index(index);
+      op = op[method](...args);
+      op.onsuccess = e => resolve(e.target.result);
+      op.onerror = reject;
     });
   }
 }
@@ -694,12 +706,16 @@ class MalTypeId {
     return url.match(/((?:anime|manga)\/\d+)|$/)[1] || '';
   }
 
+  static toUrl(typeId) {
+    if (!typeId.includes('/'))
+      typeId = MalTypeId.fromTID(typeId).join('/');
+    return MAL_URL + typeId;
+  }
+
   static fromTID(short) {
     const t = short.slice(0, 1);
     const fullType = t === 'a' && 'anime' ||
                      t === 'm' && 'manga' ||
-                     t === 'c' && 'character' ||
-                     t === 'p' && 'people' ||
                      '';
     return [fullType, short.slice(1)];
   }
@@ -707,13 +723,17 @@ class MalTypeId {
   static toTID(typeId) {
     return typeId.slice(0, 1) + typeId.split('/')[1];
   }
+
+  static urlToTID(url) {
+    return MalTypeId.toTID(MalTypeId.fromUrl(url));
+  }
 }
 
 
 class Mutant {
 
-  static gotUrl(data) {
-    const url = TypeSlug.toUrl(data);
+  static gotSlugged(data) {
+    const url = location.origin + '/' + data.path;
     const el = $('meta[property="og:url"]');
     if (el && el.content === url)
       return Promise.resolve();
@@ -946,16 +966,9 @@ class Render {
     const typeId = MalTypeId.fromUrl(malLink.href);
     const TID = MalTypeId.toTID(typeId);
     const [type, id] = typeId.split('/');
-    let slug;
-    if (Cache.malKey(TID) in localStorage) {
-      const prefix = Cache.key(type, '');
-      for (const k in localStorage) {
-        if (k.startsWith(prefix) && localStorage[k].endsWith(TID)) {
-          slug = k.slice(prefix.length);
-          break;
-        }
-      }
-    }
+
+    const {path = ''} = await Cache.db.get(TID, 'TID') || {};
+    let slug = path.split('/')[1];
 
     if (!slug) {
       const mappings = await Get.json(API_URL + 'mappings?' + [
@@ -967,7 +980,7 @@ class Render {
         `fields[${type}]=slug`,
       ].join('&'));
       slug = mapping.data.attributes.slug;
-      Cache.write(type, slug, typeId, {});
+      Cache.write(type, slug, {TID});
     }
 
     if (slug)
