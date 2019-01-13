@@ -471,15 +471,36 @@ class Cache {
   static async read(type, slug) {
     const path = type + '/' + slug;
     const data = await Cache.db.get(path);
-    if (data && Date.now() - data.time > CACHE_DURATION)
+    if (!data)
+      return;
+    if (Date.now() - data.time > CACHE_DURATION) {
       data.expired = true;
+    } else if (data.lz) {
+      for (const [k, v] of Object.entries(data.lz))
+        data[k] = Util.parseJson(LZStringUnsafe.decompressFromUTF16(v));
+      data.lz = undefined;
+    }
     return data;
   }
 
   static async write(type, slug, data) {
     data.path = type + '/' + slug;
     data.time = Date.now();
-    return Cache.db.put(data);
+    const toWrite = {};
+    for (const [k, v] of Object.entries(data)) {
+      if (v === undefined)
+        continue;
+      if (v && typeof v === 'object') {
+        const str = JSON.stringify(v);
+        if (str.length > 100) {
+          toWrite.lz = toWrite.lz || {};
+          toWrite.lz[k] = LZStringUnsafe.compressToUTF16(str);
+          continue;
+        }
+      }
+      toWrite[k] = v;
+    }
+    return Cache.db.put(toWrite);
   }
 }
 
@@ -1029,12 +1050,10 @@ class Util {
     return doc.body.firstChild.textContent;
   }
 
-  static isEmpty(obj) {
-    for (const k in obj) {
-      if (obj[k] !== undefined)
-        return false;
-    }
-    return true;
+  static parseJson(str) {
+    try {
+      return JSON.parse(str);
+    } catch (e) {}
   }
 
   static nextTick() {
