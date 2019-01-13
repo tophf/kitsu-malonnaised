@@ -456,8 +456,8 @@ class App {
 class Cache {
 
   static async init() {
-    Cache.db = new IDB(DB_NAME, DB_STORE_NAME);
-    await Cache.db.open({
+    Cache.idb = new IDB(DB_NAME, DB_STORE_NAME);
+    await Cache.idb.open({
       onupgradeneeded(e) {
         if (!e.oldVersion) {
           const store = e.target.result.createObjectStore(DB_STORE_NAME, {keyPath: 'path'});
@@ -470,7 +470,7 @@ class Cache {
 
   static async read(type, slug) {
     const path = type + '/' + slug;
-    const data = await Cache.db.get(path);
+    const data = await Cache.idb.get(path);
     if (!data)
       return;
     if (Date.now() - data.time > CACHE_DURATION) {
@@ -500,7 +500,29 @@ class Cache {
       }
       toWrite[k] = v;
     }
-    return Cache.db.put(toWrite);
+    try {
+      await Cache.idb.put(toWrite);
+    } catch (e) {
+      if (e instanceof DOMException &&
+          e.code === DOMException.QUOTA_EXCEEDED_ERR)
+        Cache.cleanup();
+    }
+  }
+
+  static cleanup() {
+    this.idb.exec({index: 'time', write: true, raw: true})
+      .openCursor(IDBKeyRange.upperBound(Date.now - CACHE_DURATION))
+      .onsuccess = e => {
+        const cursor = /** @type IDBCursorWithValue */ e.target.result;
+        if (!cursor)
+          return;
+        const {value} = cursor;
+        if (value.lz) {
+          delete value.lz;
+          cursor.update(value);
+        }
+        cursor.continue();
+      };
   }
 }
 
@@ -551,34 +573,44 @@ class IDB {
       Object.assign(indexedDB.open(this.name), {
         onsuccess: e => {
           this.db = e.target.result;
-          resolve(this.db);
+          resolve();
         },
       }, events);
     });
   }
 
   get(key, index) {
-    return this.op('get', {args: [key], index});
-  }
-
-  delete(key) {
-    return this.op('delete', {args: [key], write: true});
+    return this.exec({index}).get(key);
   }
 
   put(value) {
-    return this.op('put', {args: [value], write: true});
+    return this.exec({write: true}).put(value);
   }
 
-  op(method, {args, index, write}) {
-    return new Promise((resolve, reject) => {
-      let op = this.db
-        .transaction(this.storeName, write ? 'readwrite' : 'readonly')
-        .objectStore(this.storeName);
-      if (index)
-        op = op.index(index);
-      op = op[method](...args);
-      op.onsuccess = e => resolve(e.target.result);
-      op.onerror = reject;
+  /**
+   * @param _
+   * @param {Boolean} [_.write]
+   * @param {String} [_.index]
+   * @param {Boolean} [_.raw]
+   * @return {IDBObjectStore|IDBIndex|IDBTransaction|Promise<IDBObjectStore|IDBIndex>}
+   */
+  exec({write, index, raw} = {}) {
+    return new Proxy({}, {
+      get: (_, method) =>
+        (...args) => {
+          let op = this.db
+            .transaction(this.storeName, write ? 'readwrite' : 'readonly')
+            .objectStore(this.storeName);
+          if (index)
+            op = op.index(index);
+          op = op[method](...args);
+          return raw ?
+            op :
+            new Promise((resolve, reject) => {
+              op.onsuccess = e => resolve(e.target.result);
+              op.onerror = reject;
+            });
+        },
     });
   }
 }
@@ -985,7 +1017,7 @@ class Render {
     const TID = MalTypeId.toTID(typeId);
     const [type, id] = typeId.split('/');
 
-    const {path = ''} = await Cache.db.get(TID, 'TID') || {};
+    const {path = ''} = await Cache.idb.get(TID, 'TID') || {};
     let slug = path.split('/')[1];
 
     if (!slug) {
