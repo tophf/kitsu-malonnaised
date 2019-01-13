@@ -94,11 +94,10 @@ class App {
     const RECS_TITLE_FONT_SIZE = 13;
     const RECS_TRANSITION_TIMING = '.5s .25s';
 
-    const EXT_LINK = "url('" +
-      'data:image/svg+xml;utf8,' +
-      '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22">' +
-      '<path d="M13,0v2h5.6L6.3,14.3l1.4,1.4L20,3.4V9h2V0H13z M0,4v18h18V9l-2,2v9H2V6h9l2-2H0z"/>' +
-      '</svg>' + "')";
+    const EXT_LINK = `url('data:image/svg+xml;utf8,
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22">
+        <path d="M13,0v2h5.6L6.3,14.3l1.4,1.4L20,3.4V9h2V0H13z M0,4v18h18V9l-2,2v9H2V6h9l2-2H0z"/>
+      </svg>')`.replace(/\s+</g, '<');
     const EXT_LINK_SIZE_EM = 1;
 
     const KITSU_LINK_SIZE = 40;
