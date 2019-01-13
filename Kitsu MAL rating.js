@@ -376,10 +376,9 @@ class App {
     const {type, attributes: {slug}} = payload.data[0];
     let {data} = Cache.read(type, slug) || {};
     if (!data) {
-      App.busy = true;
+      App.hide();
       data = await Mal.scavenge(url);
       Cache.write(type, slug, url.slice(MAL_URL.length), data);
-      App.busy = false;
     }
     App.plant(Object.assign({type, slug, url}, data));
   }
@@ -556,7 +555,6 @@ class InterceptXHR extends Intercept {
     super('XMLHttpRequest', 'open', function (method, url, ...args) {
       if (/^get$/i.test(method) &&
           RX_INTERCEPT.test(url)) {
-        App.hide();
         this.addEventListener('load', e => self.onload(e), {once: true});
         url = InterceptXHR.augment(url);
         return [method, url, ...args];
@@ -611,6 +609,7 @@ class Mal {
   }
 
   static async scavenge(url) {
+    App.busy = true;
     const doc = await Get.doc(url);
     let el, score, users, favs;
 
