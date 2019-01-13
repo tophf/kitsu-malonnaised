@@ -157,7 +157,7 @@ class App {
       #CHARS h5 a {
         font: inherit;
       }
-      #CHARS[mal="anime"] li div {
+      #CHARS[mal="anime"] div[mal] {
         width: 50%;
         display: inline-block;
       }
@@ -177,6 +177,13 @@ class App {
         opacity: .3;
         will-change: opacity;
         transition: opacity .25s .1s;
+      }
+      #CHARS div[mal="people"]:only-child {
+        width: 100%;
+        opacity: 1;
+      }
+      #CHARS div[mal="people"]:only-child img {
+        opacity: .15;
       }
       #CHARS:hover div[mal="people"] img {
         opacity: .6;
@@ -205,7 +212,7 @@ class App {
       }
       #CHARS small {
         display: block;
-        margin-bottom: 8px;
+        margin: -.5em 0 8px 0;
       }
       #RECS {
         margin-bottom: 1em;
@@ -299,7 +306,8 @@ class App {
         border-radius: ${KITSU_LINK_SIZE}px;
         background: #fff;
         box-shadow: 2px 3px 10px 2px #000a;
-        transition: opacity .5s, transform .5s cubic-bezier(0.18, 2.14, 0.02, 0.37);
+        transition: opacity .5s .1s,
+                    transform .5s .1s cubic-bezier(0.18, 2.14, 0.02, 0.37);
         opacity: 0;
         z-index: 9;
       }
