@@ -29,6 +29,9 @@
 /* global LZStringUnsafe */
 
 const API_URL = 'https://kitsu.io/api/edge/';
+const JSON_API_HEADERS = {
+  'Accept': 'application/vnd.api+json',
+};
 const MAL_URL = 'https://myanimelist.net/';
 const MAL_CDN_URL = 'https://cdn.myanimelist.net/';
 let MAL_IMG_EXT = '.jpg';
@@ -73,6 +76,14 @@ const HOUR = 3600e3;
 const CACHE_DURATION = 24 * HOUR;
 
 
+const API = new Proxy({}, {
+  get(_, endpoint) {
+    return options =>
+      Get.json(`${API_URL}${endpoint}?${new URLSearchParams(options)}`);
+  },
+});
+
+
 /**
  * @property {String} path
  */
@@ -105,7 +116,12 @@ class App {
     let data = await Cache.read(type, slug);
     if (!data) {
       App.hide();
-      data = await App.inquire(type, slug).then(App.cook);
+      data = await API[type]({
+        'filter[slug]': slug,
+        'include': 'mappings',
+        'fields[mappings]': 'externalSite,externalId',
+        'fields[anime]': 'id,type,slug',
+      }).then(App.cook);
     } else if (data && data.expired) {
       App.hide();
       const {TID} = data;
@@ -114,16 +130,6 @@ class App {
     }
     App.plant(data);
   }
-
-  static inquire(type, slug) {
-    return Get.json(API_URL + type + '?' + [
-      'filter[slug]=' + slug,
-      'include=mappings',
-      'fields[mappings]=externalSite,externalId',
-      'fields[anime]=id,type,slug',
-    ].join('&'));
-  }
-
   static async cook(payload) {
     const url = Mal.findUrl(payload);
     if (!url)
@@ -526,17 +532,8 @@ class Cache {
 class Get {
 
   static json(url) {
-    return new Promise(resolve => {
-      GM_xmlhttpRequest({
-        url,
-        method: 'GET',
-        responseType: 'json',
-        headers: {
-          'Accept': 'application/vnd.api+json',
-        },
-        onload: r => resolve(r.response),
-      });
-    });
+    return fetch(url, {headers: JSON_API_HEADERS})
+      .then(r => r.json());
   }
 
   static doc(url) {
@@ -1016,16 +1013,16 @@ class Render {
     let slug = path.split('/')[1];
 
     if (!slug) {
-      const mappings = await Get.json(API_URL + 'mappings?' + [
-        'filter[externalId]=' + id,
-        'filter[externalSite]=myanimelist/' + type,
-      ].join('&'));
+      const mappings = await API.mappings({
+        'filter[externalId]': id,
+        'filter[externalSite]': 'myanimelist/' + type,
+      });
       const entry = mappings.data[0];
       if (entry) {
         const mappingId = entry.id;
-        const mapping = await Get.json(API_URL + `mappings/${mappingId}/item?` + [
-          `fields[${type}]=slug`,
-        ].join('&'));
+        const mapping = await API[`mappings/${mappingId}/item`]({
+          [`fields[${type}]`]: 'slug',
+        });
         slug = mapping.data.attributes.slug;
         Cache.write(type, slug, {TID});
       }
