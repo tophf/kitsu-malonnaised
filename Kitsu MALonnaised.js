@@ -85,6 +85,7 @@ class App {
 
     await Cache.init();
     App.onUrlChange();
+    App.initStyles();
 
     // detect WebP support
     $create('img', {
@@ -93,7 +94,76 @@ class App {
         MAL_IMG_EXT = '.webp';
       },
     });
+  }
 
+  static async onUrlChange(path = location.pathname) {
+    const [type, slug] = TypeSlug.fromUrl(path);
+    if (!slug) {
+      App.path = path;
+      return;
+    }
+    let data = await Cache.read(type, slug);
+    if (!data) {
+      App.hide();
+      data = await App.inquire(type, slug).then(App.cook);
+    } else if (data && data.expired) {
+      App.hide();
+      const {TID} = data;
+      data = await Mal.scavenge(MalTypeId.toUrl(TID));
+      data.TID = TID;
+    }
+    App.plant(data);
+  }
+
+  static inquire(type, slug) {
+    return Get.json(API_URL + type + '?' + [
+      'filter[slug]=' + slug,
+      'include=mappings',
+      'fields[mappings]=externalSite,externalId',
+      'fields[anime]=id,type,slug',
+    ].join('&'));
+  }
+
+  static async cook(payload) {
+    const url = Mal.findUrl(payload);
+    if (!url)
+      return;
+    const {type, attributes: {slug}} = payload.data[0];
+    let data = await Cache.read(type, slug);
+    if (data && !data.expired && data.score)
+      return data;
+    App.hide();
+    data = await Mal.scavenge(url);
+    data.TID = MalTypeId.urlToTID(url);
+    Cache.write(type, slug, data);
+    return data;
+  }
+
+  static async plant(data) {
+    if (!data || data.path === App.path)
+      return;
+
+    const [type, slug] = data.path.split('/');
+    const url = MalTypeId.toUrl(data.TID);
+    Object.assign(data, {type, slug, url});
+
+    await Mutant.gotSlugged(data);
+
+    Render.all(data);
+
+    App.path = data.path;
+    App.busy = false;
+  }
+
+  static async hide() {
+    await Util.nextTick();
+    if (!App.busy)
+      return;
+    for (const el of $$(ID.selectAll()))
+      el.style.opacity = 0;
+  }
+
+  static initStyles() {
     Mutant.gotTheme().then(() => {
       const bgColor = getComputedStyle(document.body).backgroundColor;
       document.head.append(
@@ -166,6 +236,7 @@ class App {
         content: '\\2764';
         margin-right: .25em;
       }
+      /*******************************************************/
       #CHARS h5 {
         display: inline-block;
       }
@@ -249,6 +320,7 @@ class App {
         display: block;
         margin: -.5em 0 8px 0;
       }
+      /*******************************************************/
       #RECS {
         margin-bottom: 1em;
         max-height: ${RECS_MIN_HEIGHT}px;
@@ -370,73 +442,6 @@ class App {
       new RegExp(`#(?=${Object.keys(ID).join('|')})\\b`, 'g'),
       '#' + ID.selectorPrefix
     ));
-  }
-
-  static async onUrlChange(path = location.pathname) {
-    const [type, slug] = TypeSlug.fromUrl(path);
-    if (!slug) {
-      App.path = path;
-      return;
-    }
-    let data = await Cache.read(type, slug);
-    if (!data) {
-      App.hide();
-      data = await App.inquire(type, slug).then(App.cook);
-    } else if (data && data.expired) {
-      App.hide();
-      const {TID} = data;
-      data = await Mal.scavenge(MalTypeId.toUrl(TID));
-      data.TID = TID;
-    }
-    App.plant(data);
-  }
-
-  static inquire(type, slug) {
-    return Get.json(API_URL + type + '?' + [
-      'filter[slug]=' + slug,
-      'include=mappings',
-      'fields[mappings]=externalSite,externalId',
-      'fields[anime]=id,type,slug',
-    ].join('&'));
-  }
-
-  static async cook(payload) {
-    const url = Mal.findUrl(payload);
-    if (!url)
-      return;
-    const {type, attributes: {slug}} = payload.data[0];
-    let data = await Cache.read(type, slug);
-    if (data && !data.expired && data.score)
-      return data;
-    App.hide();
-    data = await Mal.scavenge(url);
-    data.TID = MalTypeId.urlToTID(url);
-    Cache.write(type, slug, data);
-    return data;
-  }
-
-  static async plant(data) {
-    if (!data || data.path === App.path)
-      return;
-
-    const [type, slug] = data.path.split('/');
-    const url = MalTypeId.toUrl(data.TID);
-    Object.assign(data, {type, slug, url});
-
-    await Mutant.gotSlugged(data);
-
-    Render.all(data);
-
-    App.path = data.path;
-    App.busy = false;
-  }
-
-  static async hide() {
-    await Util.nextTick();
-    if (!App.busy)
-      return;
-    for (const el of $$(ID.selectAll()))
-      el.style.opacity = 0;
   }
 }
 
