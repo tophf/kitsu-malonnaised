@@ -571,12 +571,12 @@ class IDB {
 
   open(events) {
     return new Promise(resolve => {
-      Object.assign(indexedDB.open(this.name), {
+      Object.assign(indexedDB.open(this.name), events, {
         onsuccess: e => {
           this.db = e.target.result;
           resolve();
         },
-      }, events);
+      });
     });
   }
 
@@ -593,7 +593,7 @@ class IDB {
    * @param {Boolean} [_.write]
    * @param {String} [_.index]
    * @param {Boolean} [_.raw]
-   * @return {IDBObjectStore|IDBIndex|IDBTransaction|Promise<IDBObjectStore|IDBIndex>}
+   * @return {Promise<IDBObjectStore|IDBIndex>|IDBObjectStore|IDBIndex}
    */
   exec({write, index, raw} = {}) {
     return new Proxy({}, {
