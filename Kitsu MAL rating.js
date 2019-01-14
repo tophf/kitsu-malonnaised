@@ -28,8 +28,9 @@ const API_URL = 'https://kitsu.io/api/edge/';
 const MAL_URL = 'https://myanimelist.net/';
 const MAL_CDN_URL = 'https://cdn.myanimelist.net/';
 let MAL_IMG_EXT = '.jpg';
-// maximum number of recs present in a MAL page initially
+// maximum number present in a MAL page initially
 const MAL_RECS_LIMIT = 24;
+const MAL_CHARS_LIMIT = 14; // 10 cast + 4 staff
 
 const RX_INTERCEPT = new RegExp(
   '^' + API_URL.replace(/\./g, '\\.') +
@@ -904,7 +905,7 @@ class Render {
         $create('h5', [
           $createLink({
             href: `${url}/${slug}/characters`,
-            textContent: 'Characters on MAL',
+            textContent: Util.num2strPlus('%n character%s on MAL', MAL_CHARS_LIMIT, chars.length),
             $mal: 'chars-all',
           }),
         ]),
@@ -943,7 +944,6 @@ class Render {
 
   static recommendations({recs, url, type, slug}) {
     const mainId = url.match(/\d+/)[0];
-    const num = recs.length;
     $create('section', {
       id: ID.RECS,
       before: $('.media--reactions'),
@@ -951,8 +951,7 @@ class Render {
     }, [
       $createLink({
         href: `${url}/${slug}/userrecs`,
-        textContent: num + (num === MAL_RECS_LIMIT ? '+' : '') +
-                     ` title${num > 1 ? 's' : ''} recommended on MAL`,
+        textContent: Util.num2strPlus('%n title%s recommended on MAL', MAL_RECS_LIMIT, recs.length),
         $mal: 'recs-all',
       }),
       $create('ul',
@@ -1066,6 +1065,12 @@ class Util {
 
   static num2pct(n, numDecimals = 2) {
     return (n * 100).toFixed(numDecimals).replace(/\.?0+$/, '') + '%';
+  }
+
+  static num2strPlus(fmt, threshold, num) {
+    return fmt
+      .replace('%n', num + (num >= threshold ? '+' : ''))
+      .replace('%s', num !== 1 ? 's' : '');
   }
 
   static decodeHtml(str) {
