@@ -29,9 +29,6 @@
 /* global LZStringUnsafe */
 
 const API_URL = 'https://kitsu.io/api/edge/';
-const JSON_API_HEADERS = {
-  'Accept': 'application/vnd.api+json',
-};
 const MAL_URL = 'https://myanimelist.net/';
 const MAL_CDN_URL = 'https://cdn.myanimelist.net/';
 let MAL_IMG_EXT = '.jpg';
@@ -49,6 +46,9 @@ const $LAZY_ATTR = '$' + LAZY_ATTR;
 
 const DB_NAME = 'MALonnaise';
 const DB_STORE_NAME = 'data';
+
+const HOUR = 3600e3;
+const CACHE_DURATION = 24 * HOUR;
 
 const ID = (name => Object.defineProperties({
   SCORE: `${name}:SCORE`,
@@ -72,16 +72,34 @@ const ID = (name => Object.defineProperties({
   },
 }))(GM_info.script.name);
 
-const HOUR = 3600e3;
-const CACHE_DURATION = 24 * HOUR;
-
-
-const API = new Proxy({}, {
-  get(_, endpoint) {
-    return options =>
-      Get.json(`${API_URL}${endpoint}?${new URLSearchParams(options)}`);
-  },
-});
+const API = (() => {
+  const API_OPTIONS = {
+    headers: {
+      'Accept': 'application/vnd.api+json',
+    },
+  };
+  const PATH = Symbol('path');
+  const handler = {
+    get(target, endpoint) {
+      let path = target[PATH];
+      path += (path ? '/' : '') + endpoint;
+      const fn = Object.defineProperty(() => {}, PATH, {value: path});
+      return new Proxy(fn, handler);
+    },
+    apply(target, thisArg, [options]) {
+      for (const [k, v] of Object.entries(options)) {
+        if (typeof v === 'object') {
+          delete options[k];
+          for (const [kk, vv] of Object.entries(v))
+            options[`${k}[${kk}]`] = vv;
+        }
+      }
+      const url = `${API_URL}${target[PATH]}?${new URLSearchParams(options)}`;
+      return fetch(url, API_OPTIONS).then(r => r.json());
+    },
+  };
+  return new Proxy({[PATH]: ''}, handler);
+})();
 
 
 /**
@@ -113,20 +131,23 @@ class App {
       App.path = path;
       return;
     }
-    let data = await Cache.read(type, slug);
-    if (!data) {
+    let data = await Cache.read(type, slug) || {};
+    if (!data.path) {
       App.hide();
       data = await API[type]({
-        'filter[slug]': slug,
-        'include': 'mappings',
-        'fields[mappings]': 'externalSite,externalId',
-        'fields[anime]': 'id,type,slug',
+        filter: {slug},
+        include: 'mappings',
+        fields: {
+          mappings: 'externalSite,externalId',
+          anime: 'id,type,slug',
+        },
       }).then(App.cook);
-    } else if (data && data.expired) {
+    } else if (data.expired || !data.score) {
       App.hide();
       const {TID} = data;
       data = await Mal.scavenge(MalTypeId.toUrl(TID));
       data.TID = TID;
+      Cache.write(type, slug, data);
     }
     App.plant(data);
   }
@@ -475,6 +496,7 @@ class Cache {
     const data = await Cache.idb.get(path);
     if (!data)
       return;
+    data.path = path;
     if (Date.now() - data.time > CACHE_DURATION) {
       data.expired = true;
     } else if (data.lz) {
@@ -530,12 +552,6 @@ class Cache {
 
 
 class Get {
-
-  static json(url) {
-    return fetch(url, {headers: JSON_API_HEADERS})
-      .then(r => r.json());
-  }
-
   static doc(url) {
     return new Promise(resolve => {
       GM_xmlhttpRequest({
@@ -1014,14 +1030,18 @@ class Render {
 
     if (!slug) {
       const mappings = await API.mappings({
-        'filter[externalId]': id,
-        'filter[externalSite]': 'myanimelist/' + type,
+        filter: {
+          externalId: id,
+          externalSite: 'myanimelist/' + type,
+        },
       });
       const entry = mappings.data[0];
       if (entry) {
         const mappingId = entry.id;
-        const mapping = await API[`mappings/${mappingId}/item`]({
-          [`fields[${type}]`]: 'slug',
+        const mapping = await API.mappings[mappingId].item({
+          fields: {
+            [type]: 'slug',
+          },
         });
         slug = mapping.data.attributes.slug;
         Cache.write(type, slug, {TID});
