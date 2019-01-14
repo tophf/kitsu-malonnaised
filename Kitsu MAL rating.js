@@ -10,6 +10,8 @@
 // @match        *://kitsu.io/*
 
 // @grant        GM_xmlhttpRequest
+// @grant        GM_getValue
+// @grant        GM_setValue
 // @grant        GM_addStyle
 // @grant        unsafeWindow
 
@@ -21,7 +23,8 @@
 // ==/UserScript==
 
 'use strict';
-/* global GM_info GM_xmlhttpRequest GM_addStyle unsafeWindow exportFunction */
+/* global GM_info GM_xmlhttpRequest GM_addStyle GM_getValue GM_setValue */
+/* global unsafeWindow exportFunction */
 /* global LZStringUnsafe */
 
 const API_URL = 'https://kitsu.io/api/edge/';
@@ -37,6 +40,8 @@ const RX_INTERCEPT = new RegExp(
   '(anime|manga)\\?.*?&include=');
 
 const KITSU_GRAY_LINK_CLASS = 'import-title';
+const LAZY_ATTR = 'malsrc';
+const $LAZY_ATTR = '$' + LAZY_ATTR;
 
 const DB_NAME = 'MALonnaise';
 const DB_STORE_NAME = 'data';
@@ -104,6 +109,8 @@ class App {
     const RECS_TITLE_FONT_SIZE = 13;
     const RECS_TRANSITION_TIMING = '.5s .25s';
 
+    const CHARS_IMG_HEIGHT = Util.num2pct(350 / 225);
+
     const EXT_LINK = `url('data:image/svg+xml;utf8,
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22">
         <path d="M13,0v2h5.6L6.3,14.3l1.4,1.4L20,3.4V9h2V0H13z M0,4v18h18V9l-2,2v9H2V6h9l2-2H0z"/>
@@ -164,8 +171,20 @@ class App {
         content: '\\2764';
         margin-right: .25em;
       }
+      #CHARS h5 {
+        display: inline-block;
+      }
       #CHARS h5 a {
         font: inherit;
+      }
+      #CHARS summary {
+        cursor: zoom-in;
+      }
+      #CHARS details[open] summary {
+        cursor: zoom-out;
+      }
+      #CHARS summary:hover {
+        color: #fff;
       }
       #CHARS[mal="anime"] div[mal] {
         width: 50%;
@@ -224,6 +243,9 @@ class App {
         width: calc(100% + 2px);
         max-width: none;
         margin: -1px;
+      }
+      #CHARS img[malsrc] {
+        padding: 0 100% ${CHARS_IMG_HEIGHT} 0;
       }
       #CHARS div[mal]:not(:only-child) a > :first-child:not(div) {
         margin-top: 60%;
@@ -433,9 +455,7 @@ class App {
 
     await Mutant.gotSlugged(data);
 
-    Render.stats(data);
-    Render.characters(data);
-    Render.recommendations(data);
+    Render.all(data);
 
     App.path = data.path;
     App.busy = false;
@@ -868,6 +888,21 @@ class Mutant {
 
 class Render {
 
+  static all(data) {
+    if (!Render.scrollObserver) {
+      Render.scrollObserver = new IntersectionObserver(Render._loadImage, {
+        rootMargin: '200px',
+      });
+    }
+
+    Render.stats(data);
+    Render.characters(data);
+    Render.recommendations(data);
+
+    for (const el of $$(ID.selectAll(`[${LAZY_ATTR}]`)))
+      Render.scrollObserver.observe(el);
+  }
+
   static stats({score: [r, count] = ['N/A'], users, favs, url} = {}) {
     const quarter = r > 0 && Math.max(1, Math.min(4, 1 + (r - .001) / 2.5 >> 0));
     $createLink({
@@ -901,14 +936,16 @@ class Render {
       $style: chars ? '' : 'opacity:0',
       $mal: type,
     }, [
-      $create('div', {className: 'related-media-panel'}, [
-        $create('h5', [
-          $createLink({
-            href: `${url}/${slug}/characters`,
-            textContent: Util.num2strPlus('%n character%s on MAL', MAL_CHARS_LIMIT, chars.length),
-            $mal: 'chars-all',
-          }),
-        ]),
+      $create('details', {open: GM_getValue('chars.open', true)}, [
+        $create('summary', {onclick: Render._charsToggled},
+          $create('h5', [
+            Util.num2strPlus('%n character%s on MAL: ', MAL_CHARS_LIMIT, chars.length),
+            $createLink({
+              href: `${url}/${slug}/characters`,
+              textContent: 'see all',
+              $mal: 'chars-all',
+            }),
+          ])),
         $create('ul',
           chars.map(([type, [char, charId, charImg], [va, vaId, vaImg] = []]) =>
             $create('li', [
@@ -918,7 +955,7 @@ class Render {
                   charImg &&
                   $create('div',
                     $create('img', {
-                      src: `${MAL_CDN_URL}images/characters/${charImg}${MAL_IMG_EXT}`,
+                      [$LAZY_ATTR]: `${MAL_CDN_URL}images/characters/${charImg}${MAL_IMG_EXT}`,
                     })),
                   $create('span', char),
                 ]),
@@ -929,7 +966,9 @@ class Render {
                 $createLink({$mal: 'people', href: MAL_URL + 'people/' + vaId}, [
                   vaImg &&
                   $create('div',
-                    $create('img', {src: MAL_CDN_URL + 'images/voiceactors/' + vaImg + '.jpg'})),
+                    $create('img', {
+                      [$LAZY_ATTR]: `${MAL_CDN_URL}images/voiceactors/${vaImg}.jpg`,
+                    })),
                   $create('span', va),
                 ]),
                 !char &&
@@ -949,11 +988,15 @@ class Render {
       before: $('.media--reactions'),
       $style: recs ? '' : 'opacity:0',
     }, [
-      $createLink({
-        href: `${url}/${slug}/userrecs`,
-        textContent: Util.num2strPlus('%n title%s recommended on MAL', MAL_RECS_LIMIT, recs.length),
-        $mal: 'recs-all',
-      }),
+      $create('h5', [
+        Util.num2strPlus('%n title%s recommended on MAL: ', MAL_RECS_LIMIT, recs.length),
+        $createLink({
+          href: `${url}/${slug}/userrecs`,
+          className: KITSU_GRAY_LINK_CLASS,
+          textContent: 'see all',
+          $mal: 'recs-all',
+        }),
+      ]),
       $create('ul',
         recs.map(([name, id, img, count]) =>
           $create('li', Object.assign({
@@ -977,8 +1020,7 @@ class Render {
             }, [
               $create('span', name),
               $create('div', {
-                $style: 'background-image:' +
-                        `url(${MAL_CDN_URL}images/${type}/${img}${MAL_IMG_EXT})`,
+                [$LAZY_ATTR]: `${MAL_CDN_URL}images/${type}/${img}${MAL_IMG_EXT}`,
               }),
             ]),
           ]))),
@@ -1036,6 +1078,27 @@ class Render {
       a.href = `/${type}/${slug}`;
     else
       el.disabled = true;
+  }
+
+  static _charsToggled() {
+    GM_setValue('chars.open', !this.parentNode.open);
+  }
+
+  static _loadImage(entries) {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        const el = e.target;
+        const url = el.getAttribute(LAZY_ATTR);
+
+        if (el instanceof HTMLImageElement)
+          el.src = url;
+        else
+          el.style.backgroundImage = `url(${url})`;
+
+        el.removeAttribute(LAZY_ATTR);
+        Render.scrollObserver.unobserve(el);
+      }
+    }
   }
 }
 
