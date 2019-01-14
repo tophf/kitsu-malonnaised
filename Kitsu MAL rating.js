@@ -79,10 +79,11 @@ const CACHE_DURATION = 24 * HOUR;
 class App {
 
   static async init() {
-    await Cache.init();
     new InterceptXHR().subscribe(v => App.cook(v).then(App.plant));
     new InterceptHistory().subscribe(App.onUrlChange);
     window.addEventListener('popstate', () => App.onUrlChange());
+
+    await Cache.init();
     App.onUrlChange();
 
     // detect WebP support
@@ -373,8 +374,10 @@ class App {
 
   static async onUrlChange(path = location.pathname) {
     const [type, slug] = TypeSlug.fromUrl(path);
-    if (!slug)
+    if (!slug) {
+      App.path = path;
       return;
+    }
     let data = await Cache.read(type, slug);
     if (!data) {
       App.hide();
