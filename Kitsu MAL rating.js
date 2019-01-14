@@ -13,6 +13,7 @@
 // @grant        GM_getValue
 // @grant        GM_setValue
 // @grant        GM_addStyle
+// @grant        GM_openInTab
 // @grant        unsafeWindow
 
 // @require      https://greasyfork.org/scripts/27531/code/LZStringUnsafe.js
@@ -23,7 +24,7 @@
 // ==/UserScript==
 
 'use strict';
-/* global GM_info GM_xmlhttpRequest GM_addStyle GM_getValue GM_setValue */
+/* global GM_info GM_xmlhttpRequest GM_addStyle GM_getValue GM_setValue GM_openInTab */
 /* global unsafeWindow exportFunction */
 /* global LZStringUnsafe */
 
@@ -103,21 +104,14 @@ class App {
 
     const RECS_MIN_HEIGHT = 250;
     const RECS_MAX_HEIGHT = RECS_MIN_HEIGHT * 10;
-    const RECS_IMG_WIDTH = Util.num2pct(1 / 4);
-    const RECS_IMG_HEIGHT = Util.num2pct(315 / 225);
     const RECS_IMG_MARGIN = '.5rem';
-    const RECS_TITLE_FONT_SIZE = 13;
     const RECS_TRANSITION_TIMING = '.5s .25s';
-
-    const CHARS_IMG_HEIGHT = Util.num2pct(350 / 225);
 
     const EXT_LINK = `url('data:image/svg+xml;utf8,
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22">
         <path d="M13,0v2h5.6L6.3,14.3l1.4,1.4L20,3.4V9h2V0H13z M0,4v18h18V9l-2,2v9H2V6h9l2-2H0z"/>
       </svg>')`.replace(/\s+</g, '<');
     const EXT_LINK_SIZE_EM = 1;
-
-    const KITSU_LINK_SIZE = 40;
 
     let maskImageProp = 'mask-image';
     const extLinkRule =
@@ -245,7 +239,7 @@ class App {
         margin: -1px;
       }
       #CHARS img[malsrc] {
-        padding: 0 100% ${CHARS_IMG_HEIGHT} 0;
+        padding: 0 100% ${Util.num2pct(350 / 225)} 0;
       }
       #CHARS div[mal]:not(:only-child) a > :first-child:not(div) {
         margin-top: 60%;
@@ -290,8 +284,11 @@ class App {
       #RECS li {
         list-style: none;
         position: relative;
-        margin-right: ${RECS_IMG_MARGIN};
-        width: calc(${RECS_IMG_WIDTH} - ${RECS_IMG_MARGIN});
+        margin: 0 .5rem .5rem 0;
+        width: calc(${Util.num2pct(1 / 4)} - ${RECS_IMG_MARGIN});
+        line-height: 1;
+        display: flex;
+        flex-direction: column;
       }
       #RECS li[mal="auto-rec"] {
         opacity: .25;
@@ -300,17 +297,14 @@ class App {
         opacity: 1;
       }
       #RECS a[mal="title"] {
-        width: 100%;
-        display: block;
-        font-size: ${RECS_TITLE_FONT_SIZE}px;
+        margin: 0 0 ${Util.num2pct(315 / 225)};
+        font-size: .8rem;
         font-weight: bolder;
-        margin-top: -.25em;
-        margin-bottom: ${RECS_IMG_HEIGHT};
       }
       #RECS div {
         overflow: hidden;
         position: absolute;
-        top: 3em;
+        top: 2rem;
         left: 0;
         right: 0;
         bottom: 0;
@@ -318,12 +312,41 @@ class App {
         background-position: -1px -1px;
         background-repeat: no-repeat;
         transition: opacity .5s, filter .5s;
+        cursor: pointer;
       }
       #RECS li[mal="auto-rec"] div {
         filter: grayscale(1);
       }
       #RECS li[mal="auto-rec"]:hover div {
         filter: none;
+      }
+      #RECS a[mal="title"] div::after {
+        content: "MAL only";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        box-sizing: content-box;
+        width: 2rem;
+        height: 2rem;
+        margin: auto;
+        padding: .75rem .6rem .5rem;
+        text-align: center;
+        line-height: .9;
+        font-weight: bold;
+        font-size: 1rem;
+        letter-spacing: -.05em;
+        border: 3px solid #fff;
+        border-radius: 4rem;
+        background: #2E51A2;
+        color: #fff;
+        box-shadow: 2px 3px 10px 2px #000a;
+        transition: opacity .5s .1s;
+        opacity: 0;
+      }
+      #RECS a[mal="title"] div:hover::after {
+        opacity: 1;
       }
       #RECS span {
         white-space: nowrap;
@@ -336,65 +359,9 @@ class App {
         max-width: calc(100% - 1.5 * ${EXT_LINK_SIZE_EM}em);
       }
       #RECS small {
-        font-size: 10px;
-        opacity: .5;
-      }
-      #RECS li:hover small {
-        opacity: 1;
-      }
-      #RECS button {
-        position: absolute;
-        top: 50%;
-        left: calc(50% - ${KITSU_LINK_SIZE / 2}px);
-        box-sizing: border-box;
-        width: ${KITSU_LINK_SIZE}px;
-        height: ${KITSU_LINK_SIZE}px;
-        margin: 0;
-        padding: 0;
-        border: 2px solid orange;
-        border-radius: ${KITSU_LINK_SIZE}px;
-        background: #fff;
-        box-shadow: 2px 3px 10px 2px #000a;
-        transition: opacity .5s .1s,
-                    transform .5s .1s cubic-bezier(0.18, 2.14, 0.02, 0.37);
-        opacity: 0;
-        z-index: 9;
-      }
-      #RECS button:disabled {
-        filter: grayscale(1) contrast(.5);
-        pointer-events: none;
-      }
-      #RECS li:hover button {
-        opacity: 1;
-      }
-      #RECS li:hover svg {
-        transform: none;
-      }
-      #RECS button:hover {
-        transform: scale(1.5);
-      }
-      #RECS button:hover + a[mal="title"]:not(:hover) div {
-        opacity: .25;
-      }
-      #RECS button a {
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        padding: 4px;
-      }
-      #RECS svg {
-        width: 100%;
-        height: 100%;
-      }
-      #RECS button:not(:disabled) svg {
-        transition: transform .5s;
-        transform: rotateZ(15deg);
-      }
-      @keyframes ${ID.me}-fadein {
-        from { opacity: 0 }
-        to { opacity: 1 }
+        font-size: .75rem;
+        opacity: .75;
+        margin-bottom: .25em;
       }
     `
       // language=JS
@@ -1017,12 +984,13 @@ class Render {
               href: `${MAL_URL}${type}/${id}`,
               className: KITSU_GRAY_LINK_CLASS,
               $mal: 'title',
-            }, [
-              $create('span', name),
-              $create('div', {
-                [$LAZY_ATTR]: `${MAL_CDN_URL}images/${type}/${img}${MAL_IMG_EXT}`,
-              }),
-            ]),
+              children: $create('span', name),
+            }),
+            $create('div', {
+              [$LAZY_ATTR]: `${MAL_CDN_URL}images/${type}/${img}${MAL_IMG_EXT}`,
+              onclick: Render._kitsuLinkPreclicked,
+              onauxclick: Render._kitsuLinkPreclicked,
+            }),
           ]))),
     ]);
   }
@@ -1030,30 +998,8 @@ class Render {
   static async kitsuLink() {
     this.onmouseover = null;
 
-    if (!Render.logoWidth) {
-      const logo = $id('LOGO') || Object.assign($('.logo svg'), {id: 'LOGO'});
-      const {width, height} = getComputedStyle(logo);
-      Render.logoWidth = Util.num2pct(parseInt(width) / parseInt(height));
-    }
-
-    let a;
+    const image = $('div', this);
     const malLink = $('a[mal="title"]', this);
-    const el =
-      $create('button', {
-        before: malLink,
-        $style: `animation: .5s 1 both ${ID.me}-fadein`,
-      },
-        a =
-        $create('a',
-          $create('SVG:svg',
-            $create('SVG:use', {
-              href: '#LOGO',
-              height: '100%',
-              width: Render.logoWidth,
-              x: '2',
-            }))));
-    el.addEventListener('animationend', () => el.removeAttribute('style'), {once: true});
-
     const typeId = MalTypeId.fromUrl(malLink.href);
     const TID = MalTypeId.toTID(typeId);
     const [type, id] = typeId.split('/');
@@ -1066,18 +1012,54 @@ class Render {
         'filter[externalId]=' + id,
         'filter[externalSite]=myanimelist/' + type,
       ].join('&'));
-      const mappingId = mappings.data[0].id;
-      const mapping = await Get.json(API_URL + `mappings/${mappingId}/item?` + [
-        `fields[${type}]=slug`,
-      ].join('&'));
-      slug = mapping.data.attributes.slug;
-      Cache.write(type, slug, {TID});
+      const entry = mappings.data[0];
+      if (entry) {
+        const mappingId = entry.id;
+        const mapping = await Get.json(API_URL + `mappings/${mappingId}/item?` + [
+          `fields[${type}]=slug`,
+        ].join('&'));
+        slug = mapping.data.attributes.slug;
+        Cache.write(type, slug, {TID});
+      }
     }
 
-    if (slug)
-      a.href = `/${type}/${slug}`;
-    else
-      el.disabled = true;
+    if (slug) {
+      $create('a', {
+        href: `/${type}/${slug}`,
+        className: KITSU_GRAY_LINK_CLASS,
+        children: image,
+        parent: this,
+      });
+    } else {
+      malLink.appendChild(image);
+    }
+
+    image.onmousedown = null;
+  }
+
+  static async _kitsuLinkPreclicked(e) {
+    this.onmousedown = null;
+    if (e.altKey || e.metaKey || e.button > 1)
+      return;
+    const t0 = performance.now();
+    while (!this.parentNode.href) {
+      await Util.nextTick();
+      if (performance.now() - t0 > 1000)
+        return;
+    }
+    const {button: btn, ctrlKey: c, shiftKey: s} = e;
+    const link = this.parentNode;
+    if (!btn && !c) {
+      link.dispatchEvent(new MouseEvent('click', e));
+      if (!s)
+        App.onUrlChange(link.pathname);
+    } else {
+      GM_openInTab(link.href, {
+        active: btn === 0 && c && s,
+        insert: true,
+        setParent: true,
+      });
+    }
   }
 
   static _charsToggled() {
