@@ -124,13 +124,13 @@ class App {
 
   static async onUrlChange(path = location.pathname) {
     const [, type, slug] = path.match(/\/(anime|manga)\/([^/?#]+)(?:[?#].*)?$|$/);
+    App.hide();
     if (!slug)
       App.data = {path};
     if (App.data.path === path)
       return;
     let data = App.data = await Cache.read(type, slug) || {};
     if (!data.path) {
-      App.hide();
       data = await API[type]({
         filter: {slug},
         include: 'mappings',
@@ -140,7 +140,6 @@ class App {
         },
       }).then(App.cook);
     } else if (data.expired || !data.score) {
-      App.hide();
       const {TID} = data;
       data = App.data = await Mal.scavenge(MalTypeId.toUrl(TID));
       data.TID = TID;
@@ -183,6 +182,7 @@ class App {
   }
 
   static async hide() {
+    App.renderedPath = '';
     await Util.nextTick();
     if (!App.busy)
       return;
