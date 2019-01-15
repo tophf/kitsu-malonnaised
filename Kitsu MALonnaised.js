@@ -35,11 +35,6 @@ let MAL_IMG_EXT = '.jpg';
 // maximum number present in a MAL page initially
 const MAL_RECS_LIMIT = 24;
 const MAL_CHARS_LIMIT = 14; // 10 cast + 4 staff
-
-const RX_INTERCEPT = new RegExp(
-  '^' + API_URL.replace(/\./g, '\\.') +
-  '(anime|manga)\\?.*?&include=');
-
 const KITSU_GRAY_LINK_CLASS = 'import-title';
 const LAZY_ATTR = 'malsrc';
 const $LAZY_ATTR = '$' + LAZY_ATTR;
@@ -103,11 +98,13 @@ const API = (() => {
 
 
 /**
- * @property {String} path
+ * @property {Object} data
+ * @property {String} renderedPath
  */
 class App {
 
   static async init() {
+    App.data = {};
     new InterceptXHR().subscribe(v => App.cook(v).then(App.plant));
     new InterceptHistory().subscribe(App.onUrlChange);
     window.addEventListener('popstate', () => App.onUrlChange());
@@ -126,12 +123,12 @@ class App {
   }
 
   static async onUrlChange(path = location.pathname) {
-    const [type, slug] = TypeSlug.fromUrl(path);
-    if (!slug) {
-      App.path = path;
+    const [, type, slug] = path.match(/\/(anime|manga)\/([^/?#]+)(?:[?#].*)?$|$/);
+    if (!slug)
+      App.data = {path};
+    if (App.data.path === path)
       return;
-    }
-    let data = await Cache.read(type, slug) || {};
+    let data = App.data = await Cache.read(type, slug) || {};
     if (!data.path) {
       App.hide();
       data = await API[type]({
@@ -139,26 +136,29 @@ class App {
         include: 'mappings',
         fields: {
           mappings: 'externalSite,externalId',
-          anime: 'id,type,slug',
+          anime: 'id,slug',
         },
       }).then(App.cook);
     } else if (data.expired || !data.score) {
       App.hide();
       const {TID} = data;
-      data = await Mal.scavenge(MalTypeId.toUrl(TID));
+      data = App.data = await Mal.scavenge(MalTypeId.toUrl(TID));
       data.TID = TID;
       Cache.write(type, slug, data);
     }
     App.plant(data);
   }
+
   static async cook(payload) {
     const url = Mal.findUrl(payload);
     if (!url)
       return;
+
     const {type, attributes: {slug}} = payload.data[0];
     let data = await Cache.read(type, slug);
     if (data && !data.expired && data.score)
       return data;
+
     App.hide();
     data = await Mal.scavenge(url);
     data.TID = MalTypeId.urlToTID(url);
@@ -167,7 +167,7 @@ class App {
   }
 
   static async plant(data) {
-    if (!data || data.path === App.path)
+    if (!data || data.path === App.renderedPath)
       return;
 
     const [type, slug] = data.path.split('/');
@@ -178,7 +178,7 @@ class App {
 
     Render.all(data);
 
-    App.path = data.path;
+    App.renderedPath = data.path;
     App.busy = false;
   }
 
@@ -199,6 +199,8 @@ class App {
             --${ID.me}-bg-color: ${bgColor};
           }`));
     });
+
+    const MAIN_TRANSITION = 'opacity .25s';
 
     const RECS_MIN_HEIGHT = 250;
     const RECS_MAX_HEIGHT = RECS_MIN_HEIGHT * 10;
@@ -248,7 +250,7 @@ class App {
         text-decoration: underline;
       }
       ${ID.selectAll()} {
-        transition: opacity .25s;
+        transition: ${MAIN_TRANSITION};
       }
       #SCORE:not(:first-child),
       #USERS,
@@ -354,7 +356,7 @@ class App {
         overflow: hidden;
         position: relative;
         contain: layout;
-        transition: max-height ${RECS_TRANSITION_TIMING};
+        transition: ${MAIN_TRANSITION}, max-height ${RECS_TRANSITION_TIMING};
       }
       #RECS:hover {
         max-height: ${RECS_MAX_HEIGHT}px;
@@ -626,56 +628,84 @@ class IDB {
 
 
 class Intercept {
-  constructor(name, method, fn) {
-    this._subscribers = new Set();
-    const original = unsafeWindow[name].prototype[method];
-    unsafeWindow[name].prototype[method] = exportFunction(function () {
-      const augmentedArgs = fn.apply(this, arguments);
-      return original.apply(this, augmentedArgs || arguments);
-    }, unsafeWindow);
+  constructor() {
+    this.subscribers = new Set();
   }
 
   subscribe(fn) {
-    this._subscribers.add(fn);
+    this.subscribers.add(fn);
+  }
+
+  notify() {
+    for (const fn of this.subscribers)
+      fn.apply(null, arguments);
   }
 }
 
 
 class InterceptHistory extends Intercept {
   constructor() {
-    super('History', 'pushState', (state, title, url) => {
-      for (const fn of this._subscribers)
-        fn(url);
-    });
+    super();
+    const pushState = unsafeWindow.History.prototype.pushState;
+    unsafeWindow.History.prototype.pushState = (state, title, url) => {
+      this.notify(url);
+      return pushState(state, title, url);
+    };
   }
 }
 
 
 class InterceptXHR extends Intercept {
   constructor() {
-    let self;
-    super('XMLHttpRequest', 'open', function (method, url, ...args) {
-      if (/^get$/i.test(method) &&
-          RX_INTERCEPT.test(url)) {
-        this.addEventListener('load', e => self.onload(e), {once: true});
-        url = InterceptXHR.augment(url);
-        return [method, url, ...args];
+    super();
+    const self = this;
+    const XHR = unsafeWindow.XMLHttpRequest;
+
+    unsafeWindow.XMLHttpRequest = class extends XHR {
+      open(method, url, ...args) {
+        if (url.startsWith(API_URL)) {
+          url = InterceptXHR.onOpen.call(this, url) || url;
+          if (url !== ID.me) {
+            this.addEventListener('load', onLoad, {once: true});
+            return super.open(method, url, ...args);
+          }
+        }
       }
-    });
-    self = this;
+    };
+
+    function onLoad(e) {
+      self.notify(JSON.parse(e.target.responseText));
+    }
   }
 
-  static augment(url) {
-    const u = new URL(url);
-    u.searchParams.set('include', u.searchParams.get('include') + ',mappings');
-    u.searchParams.set('fields[mappings]', 'externalSite,externalId');
-    return u.href;
+  static onOpen(url) {
+    // https://kitsu.io/api/edge/anime?........&include=categories.......
+    if (!App.data.TID &&
+        url.includes('&include=') && (
+          url.includes('/anime?') ||
+          url.includes('/manga?'))) {
+      const u = new URL(url);
+      u.searchParams.set('include', u.searchParams.get('include') + ',mappings');
+      u.searchParams.set('fields[mappings]', 'externalSite,externalId');
+      return u.href;
+    }
+    // https://kitsu.io/api/edge/castings?.....&page%5Blimit%5D=4&......
+    if (App.data.chars &&
+        url.includes('/castings?') &&
+        url.includes('page%5Blimit%5D=4')) {
+      this.send = InterceptXHR.sendDummy;
+      this.setRequestHeader = InterceptXHR.dummy;
+      return ID.me;
+    }
   }
 
-  onload(e) {
-    const json = JSON.parse(e.target.responseText);
-    for (const fn of this._subscribers)
-      fn(json);
+  static sendDummy() {
+    Object.defineProperty(this, 'responseText', {value: '{"data": []}'});
+    this.onload({type: 'load', target: this});
+  }
+
+  static dummy() {
+    // NOP
   }
 }
 
@@ -1106,19 +1136,6 @@ class Render {
         Render.scrollObserver.unobserve(el);
       }
     }
-  }
-}
-
-
-class TypeSlug {
-
-  static fromUrl(url = location.pathname) {
-    const m = url.match(/\/(anime|manga)\/([^/?#]+)(?:[?#].*)?$|$/);
-    return m ? m.slice(1) : [];
-  }
-
-  static toUrl({type, slug}) {
-    return `${location.origin}/${type}/${slug}`;
   }
 }
 
