@@ -369,9 +369,12 @@ class App {
       #CHARS:not([hovered]) div[mal] {
         width: 100%;
       }
+      #CHARS:not([hovered]) a div {
+        border-radius: 3px;
+      }
       #CHARS[mal="anime"]:not([hovered]) div[mal="people"],
       #CHARS:not([hovered]) small,
-      #CHARS:not([hovered]) a[mal]::after {
+      #CHARS:not([hovered]) li a[mal]::after {
         display:none;
       }
       #CHARS:not([hovered]) span {
@@ -964,6 +967,7 @@ class Render {
       parent: $('.media-rating'),
       className: 'media-community-rating' + (quarter ? ' percent-quarter-' + quarter : ''),
       $style: '',
+      $mal: '',
     });
     $create('span', {
       id: ID.USERS,
@@ -980,9 +984,12 @@ class Render {
   }
 
   static characters({chars, url, type, slug}) {
+    const siteChars = $('.media--main-characters');
+    if (siteChars)
+      siteChars.remove();
     $create('section', {
       id: ID.CHARS,
-      parent: $('.media-summary'),
+      after: $('.media--information'),
       className: 'media--related',
       $style: chars ? '' : 'opacity:0',
       $mal: type,
