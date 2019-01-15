@@ -752,6 +752,10 @@ class Mal {
     }
   }
 
+  static swapNames(str) {
+    return str.replace(/(.*), (.*)/, '$2 $1');
+  }
+
   static wring(img, stripId) {
     const text = Util.decodeHtml(img.alt) || 0;
     // https://myanimelist.net/character/101457/Chika_Kudou
@@ -1007,7 +1011,7 @@ class Render {
             $create('img', {
               [$LAZY_ATTR]: `${MAL_CDN_URL}images/characters/${charImg}${MAL_IMG_EXT}`,
             })),
-          $create('span', char),
+          $create('span', Mal.swapNames(char)),
         ]),
         $create('small', type),
       ]);
@@ -1020,7 +1024,7 @@ class Render {
             $create('img', {
               [$LAZY_ATTR]: `${MAL_CDN_URL}images/voiceactors/${vaImg}.jpg`,
             })),
-          $create('span', va),
+          $create('span', Mal.swapNames(va)),
         ]),
         !char &&
         $create('small', type),
