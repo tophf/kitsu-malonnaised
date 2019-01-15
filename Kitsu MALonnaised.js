@@ -960,14 +960,14 @@ class Render {
   static stats({score: [r, count] = ['N/A'], users, favs, url} = {}) {
     const quarter = r > 0 && Math.max(1, Math.min(4, 1 + (r - .001) / 2.5 >> 0));
     $createLink({
-      textContent: (r > 0 ? Util.num2pct(r / 10) : r) + ' on MAL',
-      title: count && `Scored by ${Util.num2str(count)} users` || '',
-      href: url,
+      $mal: '',
       id: ID.SCORE,
       parent: $('.media-rating'),
+      href: url,
+      title: count && `Scored by ${Util.num2str(count)} users` || '',
+      textContent: (r > 0 ? Util.num2pct(r / 10) : r) + ' on MAL',
       className: 'media-community-rating' + (quarter ? ' percent-quarter-' + quarter : ''),
       $style: '',
-      $mal: '',
     });
     $create('span', {
       id: ID.USERS,
@@ -988,20 +988,20 @@ class Render {
     if (siteChars)
       siteChars.remove();
     $create('section', {
+      $mal: type,
       id: ID.CHARS,
       after: $('.media--information'),
       className: 'media--related',
       $style: chars ? '' : 'opacity:0',
-      $mal: type,
       onmouseover: Render._charsHovered,
       onmouseout: Render._charsHovered,
     }, [
       $create('h5', [
         Util.num2strPlus('%n character%s on MAL: ', MAL_CHARS_LIMIT, chars.length),
         $createLink({
+          $mal: 'chars-all',
           href: `${url}/${slug}/characters`,
           textContent: 'see all',
-          $mal: 'chars-all',
         }),
       ]),
       $create('ul', chars.map(Render.char)),
@@ -1011,8 +1011,14 @@ class Render {
   static char([type, [char, charId, charImg], [va, vaId, vaImg] = []]) {
     const el = $create('li');
     if (char) {
-      $create('div', {$mal: 'char', parent: el}, [
-        $createLink({$mal: 'char', href: MAL_URL + 'character/' + charId}, [
+      $create('div', {
+        $mal: 'char',
+        parent: el,
+      }, [
+        $createLink({
+          $mal: 'char',
+          href: `${MAL_URL}character/${charId}`,
+        }, [
           charImg &&
           $create('div',
             $create('img', {
@@ -1024,8 +1030,14 @@ class Render {
       ]);
     }
     if (va) {
-      $create('div', {$mal: 'people', parent: el}, [
-        $createLink({$mal: 'people', href: MAL_URL + 'people/' + vaId}, [
+      $create('div', {
+        $mal: 'people',
+        parent: el,
+      }, [
+        $createLink({
+          $mal: 'people',
+          href: `${MAL_URL}people/${vaId}`,
+        }, [
           vaImg &&
           $create('div',
             $create('img', {
@@ -1049,10 +1061,10 @@ class Render {
       $create('h5', [
         Util.num2strPlus('%n title%s recommended on MAL: ', MAL_RECS_LIMIT, recs.length),
         $createLink({
+          $mal: 'recs-all',
           href: `${url}/${slug}/userrecs`,
           className: KITSU_GRAY_LINK_CLASS,
           textContent: 'see all',
-          $mal: 'recs-all',
         }),
       ]),
       $create('ul', recs.map(Render.rec, arguments[0])),
@@ -1070,15 +1082,15 @@ class Render {
           !count ?
             'auto-rec' :
             $createLink({
-              href: `${MAL_URL}recommendations/${type}/${id}-${TID.slice(1)}`,
-              textContent: count + ' rec' + (count > 1 ? 's' : ''),
-              className: KITSU_GRAY_LINK_CLASS,
               $mal: 'rec',
+              href: `${MAL_URL}recommendations/${type}/${id}-${TID.slice(1)}`,
+              textContent: `${count} rec${count > 1 ? 's' : ''}`,
+              className: KITSU_GRAY_LINK_CLASS,
             })),
         $createLink({
+          $mal: 'title',
           href: `${MAL_URL}${type}/${id}`,
           className: KITSU_GRAY_LINK_CLASS,
-          $mal: 'title',
           children: $create('span', name),
         }),
         $create('div', {
@@ -1238,18 +1250,22 @@ class Util {
 }
 
 
+/** @return {HTMLElement} */
 function $(selector, node = document) {
   return node.querySelector(selector);
 }
 
+/** @return {HTMLElement} */
 function $id(id, doc = document) {
   return doc.getElementById(id);
 }
 
+/** @return {HTMLElement[]} */
 function $$(selector, node = document) {
   return [...node.querySelectorAll(selector)];
 }
 
+/** @return {String} */
 function $text(selector, node = document) {
   const el = typeof selector === 'string' ?
     node.querySelector(selector) :
@@ -1257,6 +1273,7 @@ function $text(selector, node = document) {
   return el ? el.textContent.trim() : '';
 }
 
+/** @return {HTMLElement} */
 function $create(tag, props = {}, children) {
 
   if (!children && (
