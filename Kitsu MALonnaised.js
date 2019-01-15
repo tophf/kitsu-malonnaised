@@ -349,6 +349,34 @@ class App {
         display: block;
         margin: -.5em 0 8px 0;
       }
+      /* replace the site's chars */
+      #CHARS {
+        max-height: calc(200px + 4.5em);
+        overflow: hidden;
+      }
+      #CHARS[hovered] {
+        max-height: none;
+      }
+      #CHARS:not([hovered]) ul {
+        display: flex;
+        flex-wrap: wrap;
+      }
+      #CHARS:not([hovered]) li {
+        width: calc(25% - 6px);
+        margin: 0 3px 6px;
+        position: relative;
+      }
+      #CHARS:not([hovered]) div[mal] {
+        width: 100%;
+      }
+      #CHARS[mal="anime"]:not([hovered]) div[mal="people"],
+      #CHARS:not([hovered]) small,
+      #CHARS:not([hovered]) a[mal]::after {
+        display:none;
+      }
+      #CHARS:not([hovered]) span {
+        max-width: 100%;
+      }
       /*******************************************************/
       #RECS {
         margin-bottom: 1em;
@@ -953,54 +981,54 @@ class Render {
       className: 'media--related',
       $style: chars ? '' : 'opacity:0',
       $mal: type,
+      onmouseover: Render._charsHovered,
+      onmouseout: Render._charsHovered,
     }, [
-      $create('details', {open: GM_getValue('chars.open', true)}, [
-        $create('summary', {onclick: Render._charsToggled},
-          $create('h5', [
-            Util.num2strPlus('%n character%s on MAL: ', MAL_CHARS_LIMIT, chars.length),
-            $createLink({
-              href: `${url}/${slug}/characters`,
-              textContent: 'see all',
-              $mal: 'chars-all',
-            }),
-          ])),
-        $create('ul',
-          chars.map(([type, [char, charId, charImg], [va, vaId, vaImg] = []]) =>
-            $create('li', [
-              char &&
-              $create('div', {$mal: 'char'}, [
-                $createLink({$mal: 'char', href: MAL_URL + 'character/' + charId}, [
-                  charImg &&
-                  $create('div',
-                    $create('img', {
-                      [$LAZY_ATTR]: `${MAL_CDN_URL}images/characters/${charImg}${MAL_IMG_EXT}`,
-                    })),
-                  $create('span', char),
-                ]),
-                $create('small', type),
-              ]),
-              va &&
-              $create('div', {$mal: 'people'}, [
-                $createLink({$mal: 'people', href: MAL_URL + 'people/' + vaId}, [
-                  vaImg &&
-                  $create('div',
-                    $create('img', {
-                      [$LAZY_ATTR]: `${MAL_CDN_URL}images/voiceactors/${vaImg}.jpg`,
-                    })),
-                  $create('span', va),
-                ]),
-                !char &&
-                $create('small', type),
-              ]),
-            ])
-          )
-        ),
+      $create('h5', [
+        Util.num2strPlus('%n character%s on MAL: ', MAL_CHARS_LIMIT, chars.length),
+        $createLink({
+          href: `${url}/${slug}/characters`,
+          textContent: 'see all',
+          $mal: 'chars-all',
+        }),
       ]),
+      $create('ul', chars.map(Render.char)),
     ]);
   }
 
-  static recommendations({recs, url, type, slug}) {
-    const mainId = url.match(/\d+/)[0];
+  static char([type, [char, charId, charImg], [va, vaId, vaImg] = []]) {
+    const el = $create('li');
+    if (char) {
+      $create('div', {$mal: 'char', parent: el}, [
+        $createLink({$mal: 'char', href: MAL_URL + 'character/' + charId}, [
+          charImg &&
+          $create('div',
+            $create('img', {
+              [$LAZY_ATTR]: `${MAL_CDN_URL}images/characters/${charImg}${MAL_IMG_EXT}`,
+            })),
+          $create('span', char),
+        ]),
+        $create('small', type),
+      ]);
+    }
+    if (va) {
+      $create('div', {$mal: 'people', parent: el}, [
+        $createLink({$mal: 'people', href: MAL_URL + 'people/' + vaId}, [
+          vaImg &&
+          $create('div',
+            $create('img', {
+              [$LAZY_ATTR]: `${MAL_CDN_URL}images/voiceactors/${vaImg}.jpg`,
+            })),
+          $create('span', va),
+        ]),
+        !char &&
+        $create('small', type),
+      ]);
+    }
+    return el;
+  }
+
+  static recommendations({recs, url, slug}) {
     $create('section', {
       id: ID.RECS,
       before: $('.media--reactions'),
@@ -1015,35 +1043,39 @@ class Render {
           $mal: 'recs-all',
         }),
       ]),
-      $create('ul',
-        recs.map(([name, id, img, count]) =>
-          $create('li', Object.assign({
-            onmouseover: Render.kitsuLink,
-          }, !count && {
-            $mal: 'auto-rec',
-          }), [
-            $create('small',
-              !count ?
-                'auto-rec' :
-                $createLink({
-                  href: `${MAL_URL}recommendations/${type}/${id}-${mainId}`,
-                  textContent: count + ' rec' + (count > 1 ? 's' : ''),
-                  className: KITSU_GRAY_LINK_CLASS,
-                  $mal: 'rec',
-                })),
-            $createLink({
-              href: `${MAL_URL}${type}/${id}`,
-              className: KITSU_GRAY_LINK_CLASS,
-              $mal: 'title',
-              children: $create('span', name),
-            }),
-            $create('div', {
-              [$LAZY_ATTR]: `${MAL_CDN_URL}images/${type}/${img}${MAL_IMG_EXT}`,
-              onclick: Render._kitsuLinkPreclicked,
-              onauxclick: Render._kitsuLinkPreclicked,
-            }),
-          ]))),
+      $create('ul', recs.map(Render.rec, arguments[0])),
     ]);
+  }
+
+  static rec([name, id, img, count]) {
+    const {type, TID} = this;
+    return (
+      $create('li', {
+        onmouseover: Render.kitsuLink,
+        $mal: count ? '' : 'auto-rec',
+      }, [
+        $create('small',
+          !count ?
+            'auto-rec' :
+            $createLink({
+              href: `${MAL_URL}recommendations/${type}/${id}-${TID.slice(1)}`,
+              textContent: count + ' rec' + (count > 1 ? 's' : ''),
+              className: KITSU_GRAY_LINK_CLASS,
+              $mal: 'rec',
+            })),
+        $createLink({
+          href: `${MAL_URL}${type}/${id}`,
+          className: KITSU_GRAY_LINK_CLASS,
+          $mal: 'title',
+          children: $create('span', name),
+        }),
+        $create('div', {
+          [$LAZY_ATTR]: `${MAL_CDN_URL}images/${type}/${img}${MAL_IMG_EXT}`,
+          onclick: Render._kitsuLinkPreclicked,
+          onauxclick: Render._kitsuLinkPreclicked,
+        }),
+      ])
+    );
   }
 
   static async kitsuLink() {
@@ -1092,6 +1124,18 @@ class Render {
     image.onmousedown = null;
   }
 
+  static _charsHovered() {
+    if (this[ID.me])
+      return;
+    this[ID.me] = setTimeout(() => {
+      delete this[ID.me];
+      if (this.matches(':hover'))
+        this.setAttribute('hovered', '');
+      else
+        this.removeAttribute('hovered');
+    }, 250);
+  }
+
   static async _kitsuLinkPreclicked(e) {
     this.onmousedown = null;
     if (e.altKey || e.metaKey || e.button > 1)
@@ -1115,10 +1159,6 @@ class Render {
         setParent: true,
       });
     }
-  }
-
-  static _charsToggled() {
-    GM_setValue('chars.open', !this.parentNode.open);
   }
 
   static _loadImage(entries) {
