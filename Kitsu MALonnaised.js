@@ -674,10 +674,11 @@ class Intercept {
 class InterceptHistory extends Intercept {
   constructor() {
     super();
+    const self = this;
     const pushState = unsafeWindow.History.prototype.pushState;
-    unsafeWindow.History.prototype.pushState = (state, title, url) => {
-      this.notify(url);
-      return pushState(state, title, url);
+    unsafeWindow.History.prototype.pushState = function (state, title, url) {
+      pushState.apply(this, arguments);
+      self.notify(url);
     };
   }
 }
