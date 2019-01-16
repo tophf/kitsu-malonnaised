@@ -34,7 +34,7 @@ const MAL_CDN_URL = 'https://cdn.myanimelist.net/';
 let MAL_IMG_EXT = '.jpg';
 // maximum number present in a MAL page initially
 const MAL_RECS_LIMIT = 24;
-const MAL_CHARS_LIMIT = 14; // 10 cast + 4 staff
+const MAL_CHARS_LIMIT = 10;
 const KITSU_GRAY_LINK_CLASS = 'import-title';
 const LAZY_ATTR = 'malsrc';
 const $LAZY_ATTR = '$' + LAZY_ATTR;
@@ -1005,7 +1005,9 @@ class Render {
       onmouseout: Render._charsHovered,
     }, chars && [
       $create('h5', [
-        Util.num2strPlus('%n character%s on MAL: ', MAL_CHARS_LIMIT, chars.length),
+        Util.num2strPlus('%n character%s on MAL: ',
+          MAL_CHARS_LIMIT,
+          chars.filter(([, [char]]) => char).length),
         $createLink({
           $mal: 'chars-all',
           href: `${url}/${slug}/characters`,
