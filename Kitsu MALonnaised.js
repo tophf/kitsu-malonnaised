@@ -131,19 +131,22 @@ class App {
       return;
     let data = App.data = await Cache.read(type, slug) || {};
     if (!data.path) {
-      data = await API[type]({
+      API[type]({
         filter: {slug},
         include: 'mappings',
         fields: {
           mappings: 'externalSite,externalId',
           anime: 'id,slug',
         },
-      }).then(App.cook);
-    } else if (data.expired || !data.score) {
-      if (data.expired) {
-        App.plant(data);
-        App.renderedPath = '';
-      }
+      }).then(App.cook)
+        .then(App.plant);
+      return;
+    }
+    if (data.expired) {
+      App.plant(data);
+      App.renderedPath = '';
+    }
+    if (data.expired || !data.score) {
       const {TID} = data;
       data = App.data = await Mal.scavenge(MalTypeId.toUrl(TID));
       data.TID = TID;
