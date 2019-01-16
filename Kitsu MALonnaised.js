@@ -140,6 +140,10 @@ class App {
         },
       }).then(App.cook);
     } else if (data.expired || !data.score) {
+      if (data.expired) {
+        App.plant(data);
+        App.renderedPath = '';
+      }
       const {TID} = data;
       data = App.data = await Mal.scavenge(MalTypeId.toUrl(TID));
       data.TID = TID;
