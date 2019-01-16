@@ -1003,7 +1003,7 @@ class Render {
       $style: chars ? '' : 'opacity:0',
       onmouseover: Render._charsHovered,
       onmouseout: Render._charsHovered,
-    }, [
+    }, chars && [
       $create('h5', [
         Util.num2strPlus('%n character%s on MAL: ', MAL_CHARS_LIMIT, chars.length),
         $createLink({
@@ -1065,7 +1065,7 @@ class Render {
       id: ID.RECS,
       before: $('.media--reactions'),
       $style: recs ? '' : 'opacity:0',
-    }, [
+    }, recs && [
       $create('h5', [
         Util.num2strPlus('%n title%s recommended on MAL: ', MAL_RECS_LIMIT, recs.length),
         $createLink({
