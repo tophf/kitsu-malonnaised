@@ -105,7 +105,7 @@ class App {
 
   static async init() {
     App.data = {};
-    new InterceptXHR().subscribe(v => App.cook(v).then(App.plant));
+    new InterceptXHR().subscribe(v => App.processMappings(v).then(App.plant));
     new InterceptHistory().subscribe(App.onUrlChange);
     window.addEventListener('popstate', () => App.onUrlChange());
 
@@ -129,7 +129,8 @@ class App {
       App.data = {path};
     if (App.data.path === path)
       return;
-    let data = App.data = await Cache.read(type, slug) || {};
+    let data = await Cache.read(type, slug) || {};
+    App.data = data;
     if (!data.path) {
       API[type]({
         filter: {slug},
@@ -138,7 +139,7 @@ class App {
           mappings: 'externalSite,externalId',
           anime: 'id,slug',
         },
-      }).then(App.cook)
+      }).then(App.processMappings)
         .then(App.plant);
       return;
     }
@@ -147,27 +148,28 @@ class App {
       App.renderedPath = '';
     }
     if (data.expired || !data.score) {
-      const {TID} = data;
-      data = App.data = await Mal.scavenge(MalTypeId.toUrl(TID));
-      data.TID = TID;
-      Cache.write(type, slug, data);
+      data = await App.processMal({type, slug, TID: data.TID});
+      App.data = data;
     }
     App.plant(data);
   }
 
-  static async cook(payload) {
+  static async processMappings(payload) {
     const url = Mal.findUrl(payload);
     if (!url)
       return;
-
     const {type, attributes: {slug}} = payload.data[0];
-    let data = await Cache.read(type, slug);
-    if (data && !data.expired && data.score)
-      return data;
+    const data = await Cache.read(type, slug);
+    return data && !data.expired && data.score ?
+      data :
+      App.processMal({type, slug, url});
+  }
 
+  static async processMal({type, slug, url, TID}) {
+    App.busy = true;
     App.hide();
-    data = await Mal.scavenge(url);
-    data.TID = MalTypeId.urlToTID(url);
+    const data = await Mal.scavenge(url || MalTypeId.toUrl(TID));
+    data.TID = TID || MalTypeId.urlToTID(url);
     Cache.write(type, slug, data);
     return data;
   }
@@ -784,7 +786,6 @@ class Mal {
   }
 
   static async scavenge(url) {
-    App.busy = true;
     const doc = await Get.doc(url);
     let el, score, users, favs;
 
