@@ -982,13 +982,13 @@ class Render {
       id: ID.USERS,
       after: $id(ID.SCORE),
       textContent: Util.num2str(users),
-      $style: users ? '' : 'opacity:0',
+      $style: users ? '' : 'opacity:0; display:none',
     });
     $create('span', {
       id: ID.FAVS,
       after: $id(ID.USERS),
       textContent: Util.num2str(favs),
-      $style: favs ? '' : 'opacity:0',
+      $style: favs ? '' : 'opacity:0; display:none',
     });
   }
 
@@ -1001,7 +1001,7 @@ class Render {
       id: ID.CHARS,
       after: $('.media--information'),
       className: 'media--related',
-      $style: chars ? '' : 'opacity:0',
+      $style: chars ? '' : 'opacity:0; display:none',
       onmouseover: Render._charsHovered,
       onmouseout: Render._charsHovered,
     }, chars && [
@@ -1067,7 +1067,7 @@ class Render {
     $create('section', {
       id: ID.RECS,
       before: $('.media--reactions'),
-      $style: recs ? '' : 'opacity:0',
+      $style: recs ? '' : 'opacity:0; display:none',
     }, recs && [
       $create('h5', [
         Util.num2strPlus('%n title%s recommended on MAL: ', MAL_RECS_LIMIT, recs.length),
