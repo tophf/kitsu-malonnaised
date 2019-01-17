@@ -328,6 +328,9 @@ class App {
       #CHARS div[mal]:first-child a {
         font-weight: bold;
       }
+      #CHARS li a[mal]::after {
+        line-height: 1.0;
+      }
       #CHARS span {
         display: inline-block;
         white-space: nowrap;
@@ -335,6 +338,7 @@ class App {
         text-overflow: ellipsis;
         max-width: calc(100% - 2 * ${EXT_LINK_SIZE_EM}em); /* room for the ext link icon */
         vertical-align: sub;
+        line-height: 1.0;
       }
       #CHARS a div {
         overflow: hidden;
@@ -360,7 +364,7 @@ class App {
       }
       /* replace the site's chars */
       #CHARS {
-        max-height: calc(200px + 4.5em);
+        max-height: calc(200px + 6.5em);
         overflow: hidden;
       }
       #CHARS[hovered] {
@@ -380,6 +384,7 @@ class App {
       }
       #CHARS:not([hovered]) a div {
         border-radius: 3px;
+        margin-bottom: .5em;
       }
       #CHARS[mal="anime"]:not([hovered]) div[mal="people"],
       #CHARS:not([hovered]) small,
@@ -764,10 +769,6 @@ class Mal {
     }
   }
 
-  static swapNames(str) {
-    return str.replace(/(.*), (.*)/, '$2 $1');
-  }
-
   static wring(img, stripId) {
     const text = Util.decodeHtml(img.alt) || 0;
     // https://myanimelist.net/character/101457/Chika_Kudou
@@ -1034,7 +1035,7 @@ class Render {
             $create('img', {
               [$LAZY_ATTR]: `${MAL_CDN_URL}images/characters/${charImg}${MAL_IMG_EXT}`,
             })),
-          $create('span', Mal.swapNames(char)),
+          $create('span', Render.malName(char)),
         ]),
         $create('small', type),
       ]);
@@ -1053,7 +1054,7 @@ class Render {
             $create('img', {
               [$LAZY_ATTR]: `${MAL_CDN_URL}images/voiceactors/${vaImg}.jpg`,
             })),
-          $create('span', Mal.swapNames(va)),
+          $create('span', Render.malName(va)),
         ]),
         !char &&
         $create('small', type),
@@ -1156,6 +1157,12 @@ class Render {
     }
 
     image.onmousedown = null;
+  }
+
+  static malName(str) {
+    const i = str.indexOf(', ');
+    // <wbr> wraps even with "white-space:nowrap" so it's better than unicode zero-width space
+    return i < 0 ? str : [str.slice(i + 2) + ' ', $create('wbr'), str.slice(0, i)];
   }
 
   static _charsHovered() {
