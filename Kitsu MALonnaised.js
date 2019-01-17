@@ -1100,6 +1100,7 @@ class Render {
             })),
         $createLink({
           $mal: 'title',
+          title: name,
           href: `${MAL_URL}${type}/${id}`,
           className: KITSU_GRAY_LINK_CLASS,
           children: $create('span', name),
