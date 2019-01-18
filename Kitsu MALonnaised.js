@@ -386,6 +386,9 @@ class App {
         margin: 0 3px 6px;
         position: relative;
       }
+      #CHARS:not([hovered]) li[mal~="no-char-pic"] {
+        order: 2;
+      }
       #CHARS:not([hovered]) div[mal] {
         width: 100%;
       }
@@ -1042,7 +1045,9 @@ class Render {
   }
 
   static char([type, [char, charId, charImg], [va, vaId, vaImg] = []]) {
-    const el = $create('li');
+    const el = $create('li', !charImg && {
+      $mal: 'no-char-pic',
+    });
     if (char) {
       $create('div', {
         $mal: 'char',
