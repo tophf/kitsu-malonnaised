@@ -85,8 +85,9 @@ const API = (() => {
       for (const [k, v] of Object.entries(options)) {
         if (typeof v === 'object') {
           delete options[k];
-          for (const [kk, vv] of Object.entries(v))
+          for (const [kk, vv] of Object.entries(v)) {
             options[`${k}[${kk}]`] = vv;
+          }
         }
       }
       const url = `${API_URL}${target[PATH]}?${new URLSearchParams(options)}`;
@@ -125,10 +126,12 @@ class App {
   static async onUrlChange(path = location.pathname) {
     const [, type, slug] = path.match(/\/(anime|manga)\/([^/?#]+)(?:[?#].*)?$|$/);
     App.hide();
-    if (!slug)
+    if (!slug) {
       App.data = {path};
-    if (App.data.path === path)
+    }
+    if (App.data.path === path) {
       return;
+    }
     let data = await Cache.read(type, slug) || {};
     App.data = data;
     if (!data.path) {
@@ -156,8 +159,9 @@ class App {
 
   static async processMappings(payload) {
     const url = Mal.findUrl(payload);
-    if (!url)
+    if (!url) {
       return;
+    }
     const {type, attributes: {slug}} = payload.data[0];
     const data = await Cache.read(type, slug);
     return data && !data.expired && data.score ?
@@ -175,8 +179,9 @@ class App {
   }
 
   static async plant(data) {
-    if (!data || data.path === App.renderedPath)
+    if (!data || data.path === App.renderedPath) {
       return;
+    }
 
     const [type, slug] = data.path.split('/');
     const url = MalTypeId.toUrl(data.TID);
@@ -193,10 +198,12 @@ class App {
   static async hide() {
     App.renderedPath = '';
     await Util.nextTick();
-    if (!App.busy)
+    if (!App.busy) {
       return;
-    for (const el of $$(ID.selectAll()))
+    }
+    for (const el of $$(ID.selectAll())) {
       el.style.opacity = 0;
+    }
   }
 
   static initStyles() {
@@ -541,14 +548,16 @@ class Cache {
   static async read(type, slug) {
     const path = type + '/' + slug;
     const data = await Cache.idb.get(path);
-    if (!data)
+    if (!data) {
       return;
+    }
     data.path = path;
     if (Date.now() - data.time > CACHE_DURATION) {
       data.expired = true;
     } else if (data.lz) {
-      for (const [k, v] of Object.entries(data.lz))
+      for (const [k, v] of Object.entries(data.lz)) {
         data[k] = Util.parseJson(LZStringUnsafe.decompressFromUTF16(v));
+      }
       data.lz = undefined;
     }
     return data;
@@ -559,8 +568,9 @@ class Cache {
     data.time = Date.now();
     const toWrite = {};
     for (const [k, v] of Object.entries(data)) {
-      if (v === undefined)
+      if (v === undefined) {
         continue;
+      }
       if (v && typeof v === 'object') {
         const str = JSON.stringify(v);
         if (str.length > 100) {
@@ -575,8 +585,9 @@ class Cache {
       await Cache.idb.put(toWrite);
     } catch (e) {
       if (e instanceof DOMException &&
-          e.code === DOMException.QUOTA_EXCEEDED_ERR)
+          e.code === DOMException.QUOTA_EXCEEDED_ERR) {
         Cache.cleanup();
+      }
     }
   }
 
@@ -585,8 +596,9 @@ class Cache {
       .openCursor(IDBKeyRange.upperBound(Date.now - CACHE_DURATION))
       .onsuccess = e => {
         const cursor = /** @type IDBCursorWithValue */ e.target.result;
-        if (!cursor)
+        if (!cursor) {
           return;
+        }
         const {value} = cursor;
         if (value.lz) {
           delete value.lz;
@@ -657,8 +669,9 @@ class IDB {
           let op = this.db
             .transaction(this.storeName, write ? 'readwrite' : 'readonly')
             .objectStore(this.storeName);
-          if (index)
+          if (index) {
             op = op.index(index);
+          }
           op = op[method](...args);
           return raw ?
             op :
@@ -682,8 +695,9 @@ class Intercept {
   }
 
   notify() {
-    for (const fn of this.subscribers)
+    for (const fn of this.subscribers) {
       fn.apply(null, arguments);
+    }
   }
 }
 
@@ -776,8 +790,9 @@ class Mal {
     // https://myanimelist.net/anime/19815/No_Game_No_Life?suggestion
     const a = img.closest('a');
     let aId = a && a.href.match(/\/(\d+(?:-\d+)?)|$/)[1] || 0;
-    if (stripId && aId && aId.includes('-'))
+    if (stripId && aId && aId.includes('-')) {
       aId = aId.replace(stripId, '');
+    }
     // https://cdn.myanimelist.net/r/23x32/images/characters/7/331067.webp?s=xxxxxxxxxx
     // https://cdn.myanimelist.net/r/23x32/images/voiceactors/1/47102.jpg?s=xxxxxxxxx
     // https://cdn.myanimelist.net/r/90x140/images/anime/13/77976.webp?s=xxxxxxx
@@ -796,8 +811,9 @@ class Mal {
     score = score && Number(score.match(/[\d.]+|$/)[0]) || score;
     const ratingCount = Util.str2num($text('[itemprop="ratingCount"]', doc));
 
-    while (el.parentElement && !el.parentElement.textContent.includes('Members:'))
+    while (el.parentElement && !el.parentElement.textContent.includes('Members:')) {
       el = el.parentElement;
+    }
     while ((!users || !favs) && (el = el.nextElementSibling)) {
       const txt = el.textContent;
       users = users || Util.str2num(txt.match(/Members:\s*([\d,]+)|$/)[1]);
@@ -841,8 +857,9 @@ class MalTypeId {
   }
 
   static toUrl(typeId) {
-    if (!typeId.includes('/'))
+    if (!typeId.includes('/')) {
       typeId = MalTypeId.fromTID(typeId).join('/');
+    }
     return MAL_URL + typeId;
   }
 
@@ -869,10 +886,12 @@ class Mutant {
   static gotSlugged(data) {
     const url = location.origin + '/' + data.path;
     const el = $('meta[property="og:url"]');
-    if (el && el.content === url)
+    if (el && el.content === url) {
       return Promise.resolve();
-    if (!Mutant._state)
+    }
+    if (!Mutant._state) {
       Mutant.init();
+    }
     Mutant._state.url = url;
     return new Promise(Mutant.subscribe);
   }
@@ -910,8 +929,9 @@ class Mutant {
 
   static subscribe(fn) {
     Mutant._state.subscribers.add(fn);
-    if (!Mutant._state.active)
+    if (!Mutant._state.active) {
       Mutant.start();
+    }
   }
 
   static init() {
@@ -962,8 +982,9 @@ class Render {
     Render.characters(data);
     Render.recommendations(data);
 
-    for (const el of $$(ID.selectAll(`[${LAZY_ATTR}]`)))
+    for (const el of $$(ID.selectAll(`[${LAZY_ATTR}]`))) {
       Render.scrollObserver.observe(el);
+    }
   }
 
   static stats({score: [r, count] = ['N/A'], users, favs, url} = {}) {
@@ -994,8 +1015,9 @@ class Render {
 
   static characters({chars, url, type, slug}) {
     const siteChars = $('.media--main-characters');
-    if (siteChars)
+    if (siteChars) {
       siteChars.remove();
+    }
     $create('section', {
       $mal: type,
       id: ID.CHARS,
@@ -1167,33 +1189,38 @@ class Render {
   }
 
   static _charsHovered() {
-    if (this[ID.me])
+    if (this[ID.me]) {
       return;
+    }
     this[ID.me] = setTimeout(() => {
       delete this[ID.me];
-      if (this.matches(':hover'))
+      if (this.matches(':hover')) {
         this.setAttribute('hovered', '');
-      else
+      } else {
         this.removeAttribute('hovered');
+      }
     }, 250);
   }
 
   static async _kitsuLinkPreclicked(e) {
     this.onmousedown = null;
-    if (e.altKey || e.metaKey || e.button > 1)
+    if (e.altKey || e.metaKey || e.button > 1) {
       return;
+    }
     const t0 = performance.now();
     while (!this.parentNode.href) {
       await Util.nextTick();
-      if (performance.now() - t0 > 1000)
+      if (performance.now() - t0 > 1000) {
         return;
+      }
     }
     const {button: btn, ctrlKey: c, shiftKey: s} = e;
     const link = this.parentNode;
     if (!btn && !c) {
       link.dispatchEvent(new MouseEvent('click', e));
-      if (!s)
+      if (!s) {
         App.onUrlChange(link.pathname);
+      }
     } else {
       GM_openInTab(link.href, {
         active: btn === 0 && c && s,
@@ -1209,10 +1236,11 @@ class Render {
         const el = e.target;
         const url = el.getAttribute(LAZY_ATTR);
 
-        if (el instanceof HTMLImageElement)
+        if (el instanceof HTMLImageElement) {
           el.src = url;
-        else
+        } else {
           el.style.backgroundImage = `url(${url})`;
+        }
 
         el.removeAttribute(LAZY_ATTR);
         Render.scrollObserver.unobserve(el);
@@ -1248,10 +1276,12 @@ class Util {
         String.fromCharCode(parseInt(code, hex ? 16 : 10)));
     }
     if (!str.includes('&') ||
-        !/&\w+;/.test(str))
+        !/&\w+;/.test(str)) {
       return str;
-    if (!Mal.parser)
+    }
+    if (!Mal.parser) {
       Mal.parser = new DOMParser();
+    }
     const doc = Mal.parser.parseFromString(str, 'text/html');
     return doc.body.firstChild.textContent;
   }
@@ -1317,8 +1347,9 @@ function $create(tag, props = {}, children) {
 
   const hasOwnProperty = Object.hasOwnProperty;
   for (const k in props) {
-    if (!hasOwnProperty.call(props, k))
+    if (!hasOwnProperty.call(props, k)) {
       continue;
+    }
     const v = props[k];
     switch (k) {
       case 'children':
@@ -1329,8 +1360,9 @@ function $create(tag, props = {}, children) {
       default: {
         const slice = k.startsWith('$') ? 1 : 0;
         if (slice || ns) {
-          if (el.getAttribute(k.slice(slice)) !== v)
+          if (el.getAttribute(k.slice(slice)) !== v) {
             el.setAttribute(k.slice(slice), v);
+          }
         } else if (el[k] !== v) {
           el[k] = v;
         }
@@ -1338,23 +1370,29 @@ function $create(tag, props = {}, children) {
     }
   }
 
-  if (!children)
+  if (!children) {
     children = props.children;
+  }
   if (children) {
-    if (el.firstChild)
+    if (el.firstChild) {
       el.textContent = '';
-    if (typeof children !== 'string' && Symbol.iterator in children)
+    }
+    if (typeof children !== 'string' && Symbol.iterator in children) {
       el.append(...[...children].filter(Boolean));
-    else
+    } else {
       el.append(children);
+    }
   }
 
-  if (props.parent && props.parent !== el.parentNode)
+  if (props.parent && props.parent !== el.parentNode) {
     props.parent.appendChild(el);
-  if (props.before && props.before !== el.nextSibling)
+  }
+  if (props.before && props.before !== el.nextSibling) {
     props.before.insertAdjacentElement('beforeBegin', el);
-  if (props.after && props.after !== el.previousSibling)
+  }
+  if (props.after && props.after !== el.previousSibling) {
     props.after.insertAdjacentElement('afterEnd', el);
+  }
 
   return el;
 }
