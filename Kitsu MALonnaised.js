@@ -1197,17 +1197,19 @@ class Render {
   }
 
   static _charsHovered() {
-    if (this[ID.me]) {
-      return;
+    const hovering = this.matches(':hover');
+    if (hovering !== this.hasAttribute('hovered')) {
+      clearTimeout(this[ID.me]);
+      this[ID.me] = setTimeout(Render._charsHoveredTimer, hovering ? 250 : 1000, this);
     }
-    this[ID.me] = setTimeout(() => {
-      delete this[ID.me];
-      if (this.matches(':hover')) {
-        this.setAttribute('hovered', '');
-      } else {
-        this.removeAttribute('hovered');
-      }
-    }, 250);
+  }
+
+  static _charsHoveredTimer(el) {
+    if (el.matches(':hover')) {
+      el.setAttribute('hovered', '');
+    } else {
+      el.removeAttribute('hovered');
+    }
   }
 
   static async _kitsuLinkPreclicked(e) {
