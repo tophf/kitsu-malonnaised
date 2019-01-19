@@ -305,7 +305,7 @@ class App {
         width: calc(50% - 4px);
         display: inline-block;
       }
-      #CHARS[mal="manga"][hovered] li:nth-child(odd) {
+      #CHARS[mal="manga"] ul[hovered] li:nth-child(odd) {
         margin-right: 8px;
       }
       #CHARS div[mal="people"] {
@@ -370,38 +370,38 @@ class App {
         margin: -.5em 0 8px 0;
       }
       /* replace the site's chars */
-      #CHARS {
-        max-height: calc(200px + 6.5em);
+      #CHARS ul {
+        max-height: var(--${ID.me}-chars-height, calc(200px + 6.5em));
         overflow: hidden;
       }
-      #CHARS[hovered] {
+      #CHARS ul[hovered] {
         max-height: none;
       }
-      #CHARS:not([hovered]) ul {
+      #CHARS ul:not([hovered]) {
         display: flex;
         flex-wrap: wrap;
       }
-      #CHARS:not([hovered]) li {
+      #CHARS ul:not([hovered]) li {
         width: calc(25% - 6px);
         margin: 0 3px 6px;
         position: relative;
       }
-      #CHARS:not([hovered]) li[mal~="no-char-pic"] {
+      #CHARS ul:not([hovered]) li[mal~="no-char-pic"] {
         order: 2;
       }
-      #CHARS:not([hovered]) div[mal] {
+      #CHARS ul:not([hovered]) div[mal] {
         width: 100%;
       }
-      #CHARS:not([hovered]) a div {
+      #CHARS ul:not([hovered]) a div {
         border-radius: 3px;
         margin-bottom: .5em;
       }
-      #CHARS[mal="anime"]:not([hovered]) div[mal="people"],
-      #CHARS:not([hovered]) small,
-      #CHARS:not([hovered]) li a[mal]::after {
+      #CHARS[mal="anime"] ul:not([hovered]) div[mal="people"],
+      #CHARS ul:not([hovered]) small,
+      #CHARS ul:not([hovered]) li a[mal]::after {
         display:none;
       }
-      #CHARS:not([hovered]) span {
+      #CHARS ul:not([hovered]) span {
         max-width: 100%;
       }
       /*******************************************************/
@@ -975,18 +975,29 @@ class Mutant {
 class Render {
 
   static all(data) {
-    if (!Render.scrollObserver) {
-      Render.scrollObserver = new IntersectionObserver(Render._loadImage, {
-        rootMargin: '200px',
-      });
-    }
-
     Render.stats(data);
     Render.characters(data);
     Render.recommendations(data);
 
-    for (const el of $$(ID.selectAll(`[${LAZY_ATTR}]`))) {
+    if (!Render.scrollObserver) {
+      Render.scrollObserver = new IntersectionObserver(Render._loadImage, {
+        rootMargin: '200px',
+      });
+      Render.charObserver = new IntersectionObserver(Render._setCharsHeight, {
+        root: $id(ID.CHARS),
+      });
+    }
+
+    let el;
+    for (el of $$(ID.selectAll(`[${LAZY_ATTR}]`))) {
       Render.scrollObserver.observe(el);
+    }
+    if ((el = $('ul', $id(ID.CHARS)).children[8])) {
+      if (Render.charObserverTarget) {
+        Render.charObserver.unobserve(Render.charObserverTarget);
+      }
+      Render.charObserver.observe(el);
+      Render.charObserverTarget = el;
     }
   }
 
@@ -1027,8 +1038,6 @@ class Render {
       after: $('.media--information'),
       className: 'media--related',
       $style: chars ? '' : 'opacity:0; display:none',
-      onmouseover: Render._charsHovered,
-      onmouseout: Render._charsHovered,
     }, chars && [
       $create('h5', [
         Util.num2strPlus('%n character%s on MAL: ',
@@ -1040,7 +1049,11 @@ class Render {
           textContent: 'see all',
         }),
       ]),
-      $create('ul', chars.map(Render.char)),
+      $create('ul', {
+        onmouseover: Render._charsHovered,
+        onmouseout: Render._charsHovered,
+        children: chars.map(Render.char),
+      }),
     ]);
   }
 
@@ -1250,6 +1263,14 @@ class Render {
         el.removeAttribute(LAZY_ATTR);
         Render.scrollObserver.unobserve(el);
       }
+    }
+  }
+
+  static _setCharsHeight([{target}]) {
+    const chars = $id(ID.CHARS);
+    if (!chars.matches(':hover')) {
+      chars.style.setProperty(`--${ID.me}-chars-height`,
+        target.offsetTop - $('ul', chars).offsetTop + 'px');
     }
   }
 }
