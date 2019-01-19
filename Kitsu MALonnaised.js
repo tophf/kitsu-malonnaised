@@ -7,7 +7,7 @@
 // @author       tophf
 // @inspired-by  https://greasyfork.org/scripts/5890
 
-// @match        *://kitsu.io/*
+// @match        https://kitsu.io/*
 
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
