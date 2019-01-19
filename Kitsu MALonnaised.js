@@ -1032,13 +1032,11 @@ class Render {
       $style: chars ? '' : 'opacity:0; display:none',
     }, chars && [
       $create('h5', [
-        Util.num2strPlus('%n character%s on MAL: ',
-          MAL_CHARS_LIMIT,
-          chars.filter(([, [char]]) => char).length),
+        'Characters ',
         $createLink({
           $mal: 'chars-all',
           href: `${url}/${slug}/characters`,
-          textContent: 'see all',
+          textContent: 'on MAL',
         }),
       ]),
       $create('ul', {
@@ -1102,12 +1100,12 @@ class Render {
       $style: recs ? '' : 'opacity:0; display:none',
     }, recs && [
       $create('h5', [
-        Util.num2strPlus('%n title%s recommended on MAL: ', MAL_RECS_LIMIT, recs.length),
+        'Recommendations ',
         $createLink({
           $mal: 'recs-all',
           href: `${url}/${slug}/userrecs`,
           className: KITSU_GRAY_LINK_CLASS,
-          textContent: 'see all',
+          textContent: 'on MAL',
         }),
       ]),
       $create('ul', recs.map(Render.rec, arguments[0])),
@@ -1280,12 +1278,6 @@ class Util {
 
   static num2pct(n, numDecimals = 2) {
     return (n * 100).toFixed(numDecimals).replace(/\.?0+$/, '') + '%';
-  }
-
-  static num2strPlus(fmt, threshold, num) {
-    return fmt
-      .replace('%n', num + (num >= threshold ? '+' : ''))
-      .replace('%s', num !== 1 ? 's' : '');
   }
 
   static decodeHtml(str) {
