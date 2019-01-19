@@ -67,6 +67,11 @@ const ID = (name => Object.defineProperties({
   },
 }))(GM_info.script.name);
 
+const EXT_LINK =
+  $create('SVG:svg', {viewBox: '0 0 22 22'},
+    $create('SVG:path', {d: 'M13,0v2h5.6L6.3,14.3l1.4,1.4L20,3.4V9h2V0H13z ' +
+                            'M0,4v18h18V9l-2,2v9H2V6h9l2-2H0z'}));
+
 const API = (() => {
   const API_OPTIONS = {
     headers: {
@@ -223,41 +228,28 @@ class App {
     const RECS_IMG_MARGIN = '.5rem';
     const RECS_TRANSITION_TIMING = '.5s .25s';
 
-    const EXT_LINK = `url('data:image/svg+xml;utf8,
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 22 22">
-        <path d="M13,0v2h5.6L6.3,14.3l1.4,1.4L20,3.4V9h2V0H13z M0,4v18h18V9l-2,2v9H2V6h9l2-2H0z"/>
-      </svg>')`.replace(/\s+</g, '<');
-    const EXT_LINK_SIZE_EM = 1;
-
-    let maskImageProp = 'mask-image';
-    const extLinkRule =
-      !CSS.supports(maskImageProp, EXT_LINK) &&
-      !CSS.supports((maskImageProp = '-webkit-' + maskImageProp), EXT_LINK) ?
-        '' :
-        // language=CSS
-        `
-        a[mal]::after {
-          content: "\\a0";
-          ${maskImageProp}: ${EXT_LINK};
-          background-color: currentColor;
-          margin-left: ${EXT_LINK_SIZE_EM / 2}em;
-          width: ${EXT_LINK_SIZE_EM}em;
-          height: ${EXT_LINK_SIZE_EM}em;
-          display: inline-block;
-          opacity: .5;
-        }
-        #RECS a[mal="recs-all"]::after,
-        a[mal="rec"]::after {
-          vertical-align: text-top;
-        }
-        a[mal]:hover::after {
-          opacity: 1;
-        }
-        `;
+    const EXT_LINK_SIZE_EM = .8;
 
     // language=CSS
     GM_addStyle(`
-      ${extLinkRule}
+      a[mal] svg {
+        fill: currentColor;
+        margin-left: ${EXT_LINK_SIZE_EM / 2}em;
+        width: ${EXT_LINK_SIZE_EM}em;
+        height: ${EXT_LINK_SIZE_EM}em;
+        display: inline-block;
+        opacity: .5;
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+        user-select: none;
+      }
+      a[mal="title"] svg {
+        vertical-align: middle;
+      }
+      a[mal]:hover svg {
+        opacity: 1;
+      }
       .media--sidebar .is-sticky {
         position: static !important;
       }
@@ -398,7 +390,7 @@ class App {
       }
       #CHARS[mal="anime"] ul:not([hovered]) div[mal="people"],
       #CHARS ul:not([hovered]) small,
-      #CHARS ul:not([hovered]) li a[mal]::after {
+      #CHARS ul:not([hovered]) li a[mal] svg{
         display:none;
       }
       #CHARS ul:not([hovered]) span {
@@ -1424,10 +1416,11 @@ function $create(tag, props = {}, children) {
 }
 
 function $createLink(props, children) {
-  return $create('a', Object.assign(props, {
-    rel: 'noopener noreferrer',
-    target: '_blank',
-  }), children);
+  const a = $create('a', props, children);
+  a.rel = 'noopener noreferrer';
+  a.target = '_blank';
+  a.appendChild(EXT_LINK.cloneNode(true));
+  return a;
 }
 
 App.init();
