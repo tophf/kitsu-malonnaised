@@ -332,7 +332,7 @@ class App {
       }
       #CHARS span {
         display: inline-block;
-        white-space: nowrap;
+        white-space: pre-line;
         overflow: hidden;
         text-overflow: ellipsis;
         max-width: calc(100% - 2 * ${EXT_LINK_SIZE_EM}em); /* room for the ext link icon */
