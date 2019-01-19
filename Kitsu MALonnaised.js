@@ -3,8 +3,8 @@
 // @description  Shows MyAnimeList.net data on Kitsu.io
 // @version      1.0.0
 
-// @namespace    https://github.com/tophf
 // @author       tophf
+// @namespace    https://github.com/tophf
 // @inspired-by  https://greasyfork.org/scripts/5890
 
 // @match        https://kitsu.io/*
