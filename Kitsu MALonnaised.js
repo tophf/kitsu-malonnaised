@@ -305,7 +305,7 @@ class App {
         width: calc(50% - 4px);
         display: inline-block;
       }
-      #CHARS[mal="manga"] li:nth-child(odd) {
+      #CHARS[mal="manga"][hovered] li:nth-child(odd) {
         margin-right: 8px;
       }
       #CHARS div[mal="people"] {
