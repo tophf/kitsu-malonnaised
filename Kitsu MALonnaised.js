@@ -34,8 +34,11 @@ const MAL_CDN_URL = 'https://cdn.myanimelist.net/';
 let MAL_IMG_EXT = '.jpg';
 // maximum number present in a MAL page initially
 const MAL_RECS_LIMIT = 24;
-const MAL_CHARS_LIMIT = 10;
+const MAL_CAST_LIMIT = 10;
+const MAL_STAFF_LIMIT = 4;
 const KITSU_GRAY_LINK_CLASS = 'import-title';
+// IntersectionObserver margin
+const LAZY_MARGIN = 200;
 const LAZY_ATTR = 'malsrc';
 const $LAZY_ATTR = '$' + LAZY_ATTR;
 
@@ -186,8 +189,11 @@ class App {
     }
 
     const [type, slug] = data.path.split('/');
-    const url = MalTypeId.toUrl(data.TID);
-    Object.assign(data, {type, slug, url});
+    Object.defineProperties(data, {
+      type: {value: type, configurable: true},
+      slug: {value: slug, configurable: true},
+      url: {value: MalTypeId.toUrl(data.TID), configurable: true},
+    });
 
     await Mutant.gotSlugged(data);
 
@@ -256,6 +262,11 @@ class App {
       }
       ${ID.selectAll()} {
         transition: ${MAIN_TRANSITION};
+      }
+      ${ID.selectAll('ins')} {
+        margin-top: ${LAZY_MARGIN}px;
+        display: block;
+        width: 100%;
       }
       #SCORE:not(:first-child),
       #USERS,
@@ -582,26 +593,30 @@ class Cache {
     } catch (e) {
       if (e instanceof DOMException &&
           e.code === DOMException.QUOTA_EXCEEDED_ERR) {
-        Cache.cleanup();
+        await Cache.cleanup();
+        await Cache.idb.put(toWrite);
       }
     }
   }
 
   static cleanup() {
-    this.idb.exec({index: 'time', write: true, raw: true})
-      .openCursor(IDBKeyRange.upperBound(Date.now - CACHE_DURATION))
-      .onsuccess = e => {
-        const cursor = /** @type IDBCursorWithValue */ e.target.result;
-        if (!cursor) {
-          return;
-        }
-        const {value} = cursor;
-        if (value.lz) {
-          delete value.lz;
-          cursor.update(value);
-        }
-        cursor.continue();
-      };
+    return new Promise(resolve => {
+      this.idb.exec({index: 'time', write: true, raw: true})
+        .openCursor(IDBKeyRange.upperBound(Date.now - CACHE_DURATION))
+        .onsuccess = e => {
+          const cursor = /** @type IDBCursorWithValue */ e.target.result;
+          if (!cursor) {
+            resolve();
+            return;
+          }
+          const {value} = cursor;
+          if (value.lz) {
+            delete value.lz;
+            cursor.update(value);
+          }
+          cursor.continue();
+        };
+    });
   }
 }
 
@@ -779,7 +794,10 @@ class Mal {
     }
   }
 
-  static wring(img, stripId) {
+  static extract(img, stripId) {
+    if (!img) {
+      return;
+    }
     const text = Util.decodeHtml(img.alt) || 0;
     // https://myanimelist.net/character/101457/Chika_Kudou
     // https://myanimelist.net/recommendations/anime/31859-35790
@@ -795,6 +813,40 @@ class Mal {
     const {src} = img.dataset;
     const imgId = src && src.match(/\/(\d+\/\d+)\.|$/)[1] || 0;
     return [text, aId >> 0, imgId];
+  }
+
+  static extractChars(doc) {
+    const processed = new Set();
+    const chars = [];
+    for (const img of $$('a[href*="/character/"] img, a[href*="/people/"] img', doc)) {
+      const parent = img.closest('table');
+      if (processed.has(parent)) {
+        continue;
+      }
+      // we're assuming a character is a table that contains an actor's table
+      // and the character's img comes first so we can add the nested actor's table
+      // thus skipping it on subsequent matches for 'a[href*="/people/"] img'
+      processed.add($('table', parent));
+      const char = $('a[href*="/character/"] img', parent);
+      let actor;
+      if (char) {
+        for (const el of $$('a[href*="/people/"] img', parent)) {
+          const lang = $text('small', el.closest('tr'));
+          if (!lang || lang === 'Japanese') {
+            actor = el;
+            break;
+          }
+        }
+      } else {
+        actor = img;
+      }
+      chars.push([
+        $text('small', parent),
+        char ? Mal.extract(char) : [],
+        ...(actor ? [Mal.extract(actor)] : []),
+      ]);
+    }
+    return chars.length && chars;
   }
 
   static async scavenge(url) {
@@ -816,22 +868,11 @@ class Mal {
       favs = favs || Util.str2num(txt.match(/Favorites:\s*([\d,]+)|$/)[1]);
     }
 
-    const chars = $$('.detail-characters-list table[width]', doc)
-      .map(el => {
-        const char = $('a[href*="/character/"] img', el);
-        const actor = $('a[href*="/people/"] img', el);
-        return [
-          $text('small', el),
-          char ? Mal.wring(char) : [],
-          ...(actor ? [Mal.wring(actor)] : []),
-        ];
-      });
-
     const rxStripOwnId = new RegExp('-?\\b' + url.match(/\d+/)[0] + '\\b-?');
     const recs = $$('#anime_recommendation .link,' +
                     '#manga_recommendation .link', doc)
       .map(a => [
-        ...Mal.wring($('img', a), rxStripOwnId),
+        ...Mal.extract($('img', a), rxStripOwnId),
         parseInt($text('.users', a)) || 0,
       ]);
 
@@ -839,7 +880,7 @@ class Mal {
       users,
       favs,
       score: score ? [score, ratingCount || 0] : undefined,
-      chars: chars.length ? chars : undefined,
+      chars: Mal.extractChars(doc) || undefined,
       recs: recs.length ? recs : undefined,
     };
   }
@@ -968,30 +1009,30 @@ class Mutant {
 class Render {
 
   static all(data) {
+    if (!Render.scrollObserver) {
+      this.init();
+    }
+
     Render.stats(data);
     Render.characters(data);
     Render.recommendations(data);
 
-    if (!Render.scrollObserver) {
-      Render.scrollObserver = new IntersectionObserver(Render._loadImage, {
-        rootMargin: '200px',
-      });
-      Render.charObserver = new IntersectionObserver(Render._setCharsHeight, {
-        root: $id(ID.CHARS),
-      });
-    }
+    Render.lazyLoad();
+  }
 
-    let el;
-    for (el of $$(ID.selectAll(`[${LAZY_ATTR}]`))) {
+  static lazyLoad(base = document.body) {
+    for (const el of $$(`[${LAZY_ATTR}]`, base)) {
       Render.scrollObserver.observe(el);
     }
-    if ((el = $('ul', $id(ID.CHARS)).children[8])) {
-      if (Render.charObserverTarget) {
-        Render.charObserver.unobserve(Render.charObserverTarget);
-      }
-      Render.charObserver.observe(el);
-      Render.charObserverTarget = el;
-    }
+  }
+
+  static init() {
+    Render.scrollObserver = new IntersectionObserver(Render._load, {
+      rootMargin: LAZY_MARGIN + 'px',
+    });
+    Render.charObserver = new IntersectionObserver(Render._setCharsHeight, {
+      root: $id(ID.CHARS),
+    });
   }
 
   static stats({score: [r, count] = ['N/A'], users, favs, url} = {}) {
@@ -1021,6 +1062,7 @@ class Render {
   }
 
   static characters({chars, url, type, slug}) {
+    let list;
     $remove('.media--main-characters');
     $create('section', {
       $mal: type,
@@ -1040,15 +1082,46 @@ class Render {
       $create('ul', {
         onmouseover: Render._charsHovered,
         onmouseout: Render._charsHovered,
-        children: chars.map(Render.char),
+        children:
+          list =
+          chars.map(Render.char),
       }),
     ]);
+    if (!chars) {
+      return;
+    }
+    const num = list.length;
+    // adjust the list block height
+    Render.charObserver.observe(
+      list[8] ||
+      $create('ins', {parent: list[num - 1]}));
+    // autoload more on scroll
+    if (num >= MAL_STAFF_LIMIT &&
+        num <= MAL_CAST_LIMIT + MAL_STAFF_LIMIT) {
+      const lastChar = list.slice().reverse().find(el => !el.matches('[mal~="staff"]'));
+      const numCast = list.indexOf(lastChar) + 1;
+      if (numCast === MAL_CAST_LIMIT) {
+        Render.scrollObserver.observe(
+          $create('ins', {
+            [$LAZY_ATTR]: 'more-chars',
+            parent: lastChar,
+          }));
+      }
+      if (num - numCast === MAL_STAFF_LIMIT) {
+        Render.scrollObserver.observe(
+          $create('ins', {
+            [$LAZY_ATTR]: 'more-chars',
+            parent: list[num - 1],
+          }));
+      }
+    }
   }
 
   static char([type, [char, charId, charImg], [va, vaId, vaImg] = []]) {
-    const el = $create('li', !charImg && {
-      $mal: 'no-char-pic',
-    });
+    const el =
+      $create('li', !charImg && {
+        $mal: 'no-char-pic' + (char ? '' : ' staff'),
+      });
     if (char) {
       $create('div', {
         $mal: 'char',
@@ -1065,6 +1138,7 @@ class Render {
             })),
           $create('span', Render.malName(char)),
         ]),
+        type !== 'Supporting' &&
         $create('small', type),
       ]);
     }
@@ -1238,16 +1312,21 @@ class Render {
     }
   }
 
-  static _loadImage(entries) {
+  static _load(entries) {
     for (const e of entries) {
       if (e.isIntersecting) {
         const el = e.target;
         const url = el.getAttribute(LAZY_ATTR);
 
-        if (el instanceof HTMLImageElement) {
-          el.src = url;
-        } else {
-          el.style.backgroundImage = `url(${url})`;
+        switch (el.localName) {
+          case 'img':
+            el.src = url;
+            break;
+          case 'ins':
+            Render._loadMore(el);
+            break;
+          default:
+            el.style.backgroundImage = `url(${url})`;
         }
 
         el.removeAttribute(LAZY_ATTR);
@@ -1256,11 +1335,41 @@ class Render {
     }
   }
 
-  static _setCharsHeight([{target}]) {
-    const chars = $id(ID.CHARS);
-    if (!chars.matches(':hover')) {
-      chars.style.setProperty(`--${ID.me}-chars-height`,
-        target.offsetTop - $('ul', chars).offsetTop + 'px');
+  static _setCharsHeight(entries) {
+    for (const e of entries) {
+      if (e.isIntersecting) {
+        const chars = $id(ID.CHARS);
+        if (!chars.matches(':hover')) {
+          const prop = `--${ID.me}-chars-height`;
+          const height = e.target.offsetTop - $('ul', chars).offsetTop + 'px';
+          if (chars.style.getPropertyValue(prop) !== height) {
+            chars.style.setProperty(prop, height);
+          }
+        }
+      }
+    }
+  }
+
+  static async _loadMore(el) {
+    const block = el.closest('[id]');
+    for (let el; (el = $(`ins[${LAZY_ATTR}]`, block));) {
+      el.remove();
+    }
+    block.style.cursor = 'progress';
+
+    const doc = await Get.doc($('a', block).href);
+    const {data} = App;
+    data.chars = Mal.extractChars(doc);
+    Cache.write(data.type, data.slug, data);
+
+    block.style.cursor = '';
+    const hovered = block.matches(':hover');
+
+    Render.characters(data);
+    Render.lazyLoad(block);
+
+    if (hovered) {
+      Render._charsHoveredTimer($('ul', block));
     }
   }
 }
