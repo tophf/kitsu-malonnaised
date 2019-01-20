@@ -1021,10 +1021,7 @@ class Render {
   }
 
   static characters({chars, url, type, slug}) {
-    const siteChars = $('.media--main-characters');
-    if (siteChars) {
-      siteChars.remove();
-    }
+    $remove('.media--main-characters');
     $create('section', {
       $mal: type,
       id: ID.CHARS,
@@ -1416,6 +1413,15 @@ function $createLink(props, children) {
   a.target = '_blank';
   a.appendChild(EXT_LINK.cloneNode(true));
   return a;
+}
+
+function $remove(selectorOrNode, base) {
+  const el = selectorOrNode instanceof Node ?
+    selectorOrNode :
+    $(selectorOrNode, base);
+  if (el) {
+    el.remove();
+  }
 }
 
 App.init();
