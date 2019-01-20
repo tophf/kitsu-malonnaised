@@ -46,26 +46,23 @@ const HOUR = 3600e3;
 const CACHE_DURATION = 24 * HOUR;
 
 const ID = (name => Object.defineProperties({
-  SCORE: `${name}:SCORE`,
-  USERS: `${name}:USERS`,
-  FAVS: `${name}:FAVS`,
-  CHARS: `${name}:CHARS`,
-  RECS: `${name}:RECS`,
+  SCORE: `${name}-SCORE`,
+  USERS: `${name}-USERS`,
+  FAVS: `${name}-FAVS`,
+  CHARS: `${name}-CHARS`,
+  RECS: `${name}-RECS`,
 }, {
   me: {
-    value: name.replace(/\W/g, ''),
-  },
-  selectorPrefix: {
-    value: CSS.escape(name + ':'),
+    value: name,
   },
   selectAll: {
     value(suffix = '') {
       return Object.keys(ID)
-        .map(id => `#${ID.selectorPrefix}${id} ${suffix}`)
+        .map(id => `#${ID.me}-${id} ${suffix}`)
         .join(',');
     },
   },
-}))(GM_info.script.name);
+}))(GM_info.script.name.replace(/\W/g, ''));
 
 const EXT_LINK =
   $create('SVG:svg', {viewBox: '0 0 22 22'},
@@ -216,7 +213,7 @@ class App {
       const bgColor = getComputedStyle(document.body).backgroundColor;
       document.head.append(
         $create('style', `
-          #${CSS.escape(ID.RECS)} {
+          #${ID.RECS} {
             --${ID.me}-bg-color: ${bgColor};
           }`));
     });
@@ -520,7 +517,7 @@ class App {
       // language=JS
     .replace(
       new RegExp(`#(?=${Object.keys(ID).join('|')})\\b`, 'g'),
-      '#' + ID.selectorPrefix
+      `#${ID.me}-`
     ));
   }
 }
