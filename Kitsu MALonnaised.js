@@ -223,7 +223,7 @@ class App {
 
     const MAIN_TRANSITION = 'opacity .25s';
 
-    const RECS_MIN_HEIGHT = 250;
+    const RECS_MIN_HEIGHT = 220;
     const RECS_MAX_HEIGHT = RECS_MIN_HEIGHT * 10;
     const RECS_IMG_MARGIN = '.5rem';
     const RECS_TRANSITION_TIMING = '.5s .25s';
@@ -403,16 +403,22 @@ class App {
       /*******************************************************/
       #RECS {
         margin-bottom: 1em;
+      }
+      #RECS ul {
+        display: flex;
+        flex-wrap: wrap;
+        margin: 0 -${RECS_IMG_MARGIN} 0 0;
+        padding: 0;
         max-height: ${RECS_MIN_HEIGHT}px;
         overflow: hidden;
         position: relative;
         contain: layout;
-        transition: ${MAIN_TRANSITION}, max-height ${RECS_TRANSITION_TIMING};
+        transition: max-height ${RECS_TRANSITION_TIMING};
       }
-      #RECS:hover {
+      #RECS ul:hover {
         max-height: ${RECS_MAX_HEIGHT}px;
       }
-      #RECS::before {
+      #RECS ul::before {
         background: linear-gradient(transparent 33%, var(--${ID.me}-bg-color));
         position: absolute;
         display: block;
@@ -424,15 +430,9 @@ class App {
         transition: min-height ${RECS_TRANSITION_TIMING},
                     opacity ${RECS_TRANSITION_TIMING};
       }
-      #RECS:hover::before {
+      #RECS ul:hover::before {
         opacity: 0;
         min-height: ${RECS_MAX_HEIGHT}px;
-      }
-      #RECS ul {
-        display: flex;
-        flex-wrap: wrap;
-        margin: 0 -${RECS_IMG_MARGIN} 0 0;
-        padding: 0;
       }
       #RECS li {
         list-style: none;
