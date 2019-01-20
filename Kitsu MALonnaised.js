@@ -317,9 +317,13 @@ class App {
       #CHARS div[mal="people"]:only-child img {
         opacity: .15;
       }
+      #CHARS:hover div[mal="people"]:only-child img {
+        opacity: .45;
+      }
       #CHARS:hover div[mal="people"] img {
         opacity: .6;
       }
+      #CHARS div[mal="people"]:only-child:hover img,
       #CHARS div[mal="people"]:hover,
       #CHARS div[mal="people"] img:hover {
         opacity: 1;
