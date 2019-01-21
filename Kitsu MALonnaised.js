@@ -89,6 +89,9 @@ const agent = (() => {
       data[name].delete(fn);
     },
     fire(name, ...args) {
+      console.groupCollapsed(name, args);
+      console.trace();
+      console.groupEnd();
       const listeners = data[name];
       for (const [fn, [thisArg, once]] of listeners) {
         fn.apply(thisArg, args);
@@ -125,6 +128,7 @@ const API = (() => {
         }
       }
       const url = `${API_URL}${target[PATH]}?${new URLSearchParams(options)}`;
+      console.debug('API', [url]);
       return fetch(url, API_OPTIONS).then(r => r.json());
     },
   };
@@ -163,6 +167,7 @@ class App {
       App.data = {path};
     }
     if (App.data.path === path) {
+      console.debug('onUrlChange', ['same path', path]);
       return;
     }
     let data = await Cache.read(type, slug) || {};
@@ -180,8 +185,8 @@ class App {
       return;
     }
     if (data.expired) {
+      console.debug('onUrlChange', ['expired']);
       App.plant(data);
-      App.renderedPath = '';
     }
     if (data.expired || !data.score) {
       data = await App.processMal({type, slug, TID: data.TID});
@@ -203,6 +208,7 @@ class App {
   }
 
   static async processMal({type, slug, url, TID}) {
+    console.debug('processMal');
     App.busy = true;
     App.hide();
     const data = await Mal.scavenge(url || MalTypeId.toUrl(TID));
@@ -213,6 +219,7 @@ class App {
 
   static async plant(data) {
     if (!data || data.path === App.renderedPath) {
+      console.debug('plant', ['same path', data.path]);
       return;
     }
 
@@ -227,7 +234,7 @@ class App {
 
     Render.all(data);
 
-    App.renderedPath = data.path;
+    App.renderedPath = data.expired ? '' : data.path;
     App.busy = false;
   }
 
@@ -772,6 +779,7 @@ class InterceptXHR {
       const u = new URL(url);
       u.searchParams.set('include', u.searchParams.get('include') + ',mappings');
       u.searchParams.set('fields[mappings]', 'externalSite,externalId');
+      console.debug('XHR:anime');
       return u.href;
     }
     // https://kitsu.io/api/edge/castings?.....&page%5Blimit%5D=4&......
@@ -780,6 +788,7 @@ class InterceptXHR {
         url.includes('page%5Blimit%5D=4')) {
       this.send = InterceptXHR.sendDummy;
       this.setRequestHeader = InterceptXHR.dummy;
+      console.debug('XHR:castings');
       return false;
     }
   }
@@ -935,12 +944,13 @@ class MalTypeId {
 class Mutant {
 
   static async gotPath({path} = {}) {
+    const skipCurrent = !path;
     const selector = 'meta[property="og:url"]' +
-                     (path ? `[content="${location.origin}/${path}"]` : '');
-    if (Mutant.isWaiting(selector, !path)) {
+                     (skipCurrent ? '' : `[content="${location.origin}/${path}"]`);
+    if (Mutant.isWaiting(selector, skipCurrent)) {
       return new Promise(resolve => agent.once('gotPath', resolve));
     }
-    const el = await Mutant.waitFor(selector, document.head);
+    const el = await Mutant.waitFor(selector, document.head, {skipCurrent});
     agent.fire('gotPath', el);
     return el;
   }
@@ -974,10 +984,14 @@ class Mutant {
     });
   }
 
-  static async waitFor(selector, base) {
-    return $(selector, base) ||
+  static async waitFor(selector, base, {skipCurrent} = {}) {
+    return !skipCurrent && $(selector, base) ||
       new Promise(resolve => {
-        (Mutant._waiting || (Mutant._waiting = new Set())).add(selector);
+        console.debug('waitFor', [selector]);
+        if (!Mutant._waiting) {
+          Mutant._waiting = new Set();
+        }
+        Mutant._waiting.add(selector);
         new MutationObserver((mutations, ob) => {
           for (var i = 0, m; (m = mutations[i++]);) {
             for (var j = 0, added = m.addedNodes, n; (n = added[j++]);) {
@@ -1298,6 +1312,7 @@ class Render {
       Mutant.gotAttribute(this.parentNode, 'href'),
       Mutant.gotPath(),
     ]);
+    console.debug('preclicked', [winner]);
     if (winner instanceof HTMLMetaElement) {
       return;
     }
