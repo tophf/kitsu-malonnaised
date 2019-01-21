@@ -1526,7 +1526,9 @@ function $createLink(props, children) {
   const a = $create('a', props, children);
   a.rel = 'noopener noreferrer';
   a.target = '_blank';
-  a.appendChild(EXT_LINK.cloneNode(true));
+  if (!(a.lastElementChild instanceof SVGElement)) {
+    a.appendChild(EXT_LINK.cloneNode(true));
+  }
   return a;
 }
 
