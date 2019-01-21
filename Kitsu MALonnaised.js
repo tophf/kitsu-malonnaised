@@ -59,11 +59,10 @@ const ID = (name => Object.defineProperties({
     value: name,
   },
   selectAll: {
-    value(suffix = '') {
-      return Object.keys(ID)
+    value: (suffix = '') =>
+      Object.keys(ID)
         .map(id => `#${ID.me}-${id} ${suffix}`)
-        .join(',');
-    },
+        .join(','),
   },
 }))(GM_info.script.name.replace(/\W/g, ''));
 
