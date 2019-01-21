@@ -72,6 +72,35 @@ const EXT_LINK =
     $create('SVG:path', {d: 'M13,0v2h5.6L6.3,14.3l1.4,1.4L20,3.4V9h2V0H13z ' +
                             'M0,4v18h18V9l-2,2v9H2V6h9l2-2H0z'}));
 
+const agent = (() => {
+  const data = new Proxy({}, {
+    get: (self, name) =>
+      self[name] ||
+      (self[name] = new Map()),
+  });
+  return {
+    on(name, fn, thisArg) {
+      data[name].set(fn, [thisArg]);
+    },
+    once(name, fn, thisArg) {
+      data[name].set(fn, [thisArg, true]);
+    },
+    off(name, fn) {
+      data[name].delete(fn);
+    },
+    fire(name, ...args) {
+      const listeners = data[name];
+      for (const [fn, [thisArg, once]] of listeners) {
+        fn.apply(thisArg, args);
+        if (once) {
+          listeners.delete(fn);
+        }
+      }
+    },
+  };
+})();
+
+
 const API = (() => {
   const API_OPTIONS = {
     headers: {
@@ -102,7 +131,6 @@ const API = (() => {
   return new Proxy({[PATH]: ''}, handler);
 })();
 
-
 /**
  * @property {Object} data
  * @property {String} renderedPath
@@ -111,8 +139,8 @@ class App {
 
   static async init() {
     App.data = {};
-    new InterceptXHR().subscribe(v => App.processMappings(v).then(App.plant));
-    new InterceptHistory().subscribe(App.onUrlChange);
+    agent.on(InterceptXHR.register(), v => App.processMappings(v).then(App.plant));
+    agent.on(InterceptHistory.register(), App.onUrlChange);
     window.addEventListener('popstate', () => App.onUrlChange());
 
     await Cache.init();
@@ -195,7 +223,7 @@ class App {
       url: {value: MalTypeId.toUrl(data.TID), configurable: true},
     });
 
-    await Mutant.gotSlugged(data);
+    await Mutant.gotPath(data);
 
     Render.all(data);
 
@@ -696,56 +724,42 @@ class IDB {
 }
 
 
-class Intercept {
-  constructor() {
-    this.subscribers = new Set();
-  }
-
-  subscribe(fn) {
-    this.subscribers.add(fn);
-  }
-
-  notify() {
-    for (const fn of this.subscribers) {
-      fn.apply(null, arguments);
-    }
-  }
-}
-
-
-class InterceptHistory extends Intercept {
-  constructor() {
-    super();
-    const self = this;
+class InterceptHistory {
+  static register() {
+    const event = Symbol(this.name);
     const pushState = unsafeWindow.History.prototype.pushState;
     unsafeWindow.History.prototype.pushState = function (state, title, url) {
       pushState.apply(this, arguments);
-      self.notify(url);
+      agent.fire(event, url);
     };
+    return event;
   }
 }
 
 
-class InterceptXHR extends Intercept {
-  constructor() {
-    super();
-    const self = this;
+class InterceptXHR {
+  static register() {
+    const event = Symbol(this.name);
     const XHR = unsafeWindow.XMLHttpRequest;
-
     unsafeWindow.XMLHttpRequest = class extends XHR {
       open(method, url, ...args) {
         if (url.startsWith(API_URL)) {
-          url = InterceptXHR.onOpen.call(this, url) || url;
-          if (url !== ID.me) {
+          const newUrl = InterceptXHR.onOpen.call(this, url);
+          if (newUrl === false) {
+            return;
+          }
+          if (newUrl) {
+            url = newUrl;
             this.addEventListener('load', onLoad, {once: true});
-            return super.open(method, url, ...args);
           }
         }
+        return super.open(method, url, ...args);
       }
     };
+    return event;
 
     function onLoad(e) {
-      self.notify(JSON.parse(e.target.responseText));
+      agent.fire(event, JSON.parse(e.target.responseText));
     }
   }
 
@@ -766,7 +780,7 @@ class InterceptXHR extends Intercept {
         url.includes('page%5Blimit%5D=4')) {
       this.send = InterceptXHR.sendDummy;
       this.setRequestHeader = InterceptXHR.dummy;
-      return ID.me;
+      return false;
     }
   }
 
@@ -920,87 +934,76 @@ class MalTypeId {
 
 class Mutant {
 
-  static gotSlugged(data) {
-    const url = location.origin + '/' + data.path;
-    const el = $('meta[property="og:url"]');
-    if (el && el.content === url) {
-      return Promise.resolve();
+  static async gotPath({path} = {}) {
+    const selector = 'meta[property="og:url"]' +
+                     (path ? `[content="${location.origin}/${path}"]` : '');
+    if (Mutant.isWaiting(selector, !path)) {
+      return new Promise(resolve => agent.once('gotPath', resolve));
     }
-    if (!Mutant._state) {
-      Mutant.init();
-    }
-    Mutant._state.url = url;
-    return new Promise(Mutant.subscribe);
+    const el = await Mutant.waitFor(selector, document.head);
+    agent.fire('gotPath', el);
+    return el;
   }
 
   static async gotTheme() {
-    const selector = 'link[data-theme]';
-    const head =
-      document.head ||
-      new Promise(resolve => {
-        new MutationObserver((_, ob) => {
-          const head = document.head;
-          if (head) {
-            ob.disconnect();
-            resolve(head);
-          }
-        }).observe(document.documentElement, {childList: true});
-      });
-    const el =
-      head.querySelector(selector) ||
-      await new Promise(resolve => {
-        new MutationObserver((mutations, ob) => {
-          const el = head.querySelector(selector);
-          if (el) {
-            ob.disconnect();
-            resolve(el);
-          }
-        }).observe(document.head, {childList: true});
-      });
+    const head = await Mutant.waitFor('head', document.documentElement);
+    const el = await Mutant.waitFor('link[data-theme]', head);
     try {
-      el.sheet.cssRules; // eslint-disable-line no-unused-expressions
+      el.sheet.cssRules.item(0);
     } catch (e) {
       await new Promise(done => el.addEventListener('load', done, {once: true}));
     }
   }
 
-  static subscribe(fn) {
-    Mutant._state.subscribers.add(fn);
-    if (!Mutant._state.active) {
-      Mutant.start();
-    }
+  static async gotAttribute(node, ...attrs) {
+    return new Promise(resolve => {
+      let timeout;
+      const ob = new MutationObserver(() => {
+        ob.disconnect();
+        clearTimeout(timeout);
+        resolve(node);
+      });
+      ob.observe(node, {
+        attributes: true,
+        attributeFilter: attrs,
+      });
+      timeout = setTimeout(() => {
+        ob.disconnect();
+        resolve(false);
+      }, 5000);
+    });
   }
 
-  static init() {
-    Mutant._state = {
-      active: false,
-      subscribers: new Set(),
-      observer: new MutationObserver(Mutant.observer),
-      url: '',
-    };
+  static async waitFor(selector, base) {
+    return $(selector, base) ||
+      new Promise(resolve => {
+        (Mutant._waiting || (Mutant._waiting = new Set())).add(selector);
+        new MutationObserver((mutations, ob) => {
+          for (var i = 0, m; (m = mutations[i++]);) {
+            for (var j = 0, added = m.addedNodes, n; (n = added[j++]);) {
+              if ('matches' in n && n.matches(selector)) {
+                Mutant._waiting.delete(selector);
+                ob.disconnect();
+                resolve(n);
+              }
+            }
+          }
+        }).observe(base, {childList: true});
+      });
   }
 
-  static start() {
-    Mutant._state.observer.observe(document.head, {childList: true});
-    Mutant._state.observer.active = true;
-  }
-
-  static resolve() {
-    Mutant._state.observer.disconnect();
-    Mutant._state.observer.active = false;
-    Mutant._state.subscribers.forEach(fn => fn.apply(null, arguments));
-    Mutant._state.subscribers.clear();
-  }
-
-  static observer(mm) {
-    for (var i = 0, m; (m = mm[i++]);) {
-      for (var j = 0, added = m.addedNodes, n; (n = added[j++]);) {
-        if (n.localName === 'meta' &&
-            n.content === Mutant._state.url) {
-          Mutant.resolve();
-          return;
+  static isWaiting(selector, asPrefix) {
+    if (!Mutant._waiting) {
+      Mutant._waiting = new Set();
+      return false;
+    } else if (asPrefix) {
+      for (const s of Mutant._waiting) {
+        if (s.startsWith(selector)) {
+          return true;
         }
       }
+    } else {
+      return Mutant._waiting.has(selector);
     }
   }
 }
@@ -1285,17 +1288,20 @@ class Render {
   }
 
   static async _kitsuLinkPreclicked(e) {
-    this.onmousedown = null;
+    this.onclick = null;
+    this.onauxclick = null;
     if (e.altKey || e.metaKey || e.button > 1) {
       return;
     }
-    const t0 = performance.now();
-    while (!this.parentNode.href) {
-      await Util.nextTick();
-      if (performance.now() - t0 > 1000) {
-        return;
-      }
+
+    const winner = await Promise.race([
+      Mutant.gotAttribute(this.parentNode, 'href'),
+      Mutant.gotPath(),
+    ]);
+    if (winner instanceof HTMLMetaElement) {
+      return;
     }
+
     const {button: btn, ctrlKey: c, shiftKey: s} = e;
     const link = this.parentNode;
     if (!btn && !c) {
@@ -1323,7 +1329,9 @@ class Render {
             el.src = url;
             break;
           case 'ins':
-            Render._loadMore(el);
+            if (el.matches(`[${LAZY_ATTR}^="more-"]`)) {
+              Render._loadMore(el);
+            }
             break;
           default:
             el.style.backgroundImage = `url(${url})`;
@@ -1337,14 +1345,12 @@ class Render {
 
   static _setCharsHeight(entries) {
     for (const e of entries) {
-      if (e.isIntersecting) {
-        const chars = $id(ID.CHARS);
-        if (!chars.matches(':hover')) {
-          const prop = `--${ID.me}-chars-height`;
-          const height = e.target.offsetTop - $('ul', chars).offsetTop + 'px';
-          if (chars.style.getPropertyValue(prop) !== height) {
-            chars.style.setProperty(prop, height);
-          }
+      const chars = $id(ID.CHARS);
+      if (!chars.matches(':hover')) {
+        const prop = `--${ID.me}-chars-height`;
+        const height = e.target.offsetTop - $('ul', chars).offsetTop + 'px';
+        if (chars.style.getPropertyValue(prop) !== height) {
+          chars.style.setProperty(prop, height);
         }
       }
     }
