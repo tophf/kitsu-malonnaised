@@ -643,22 +643,6 @@ class Cache {
 }
 
 
-class Get {
-  static doc(url) {
-    return new Promise(resolve => {
-      GM_xmlhttpRequest({
-        url,
-        method: 'GET',
-        onload(r) {
-          const doc = new DOMParser().parseFromString(r.response, 'text/html');
-          resolve(doc);
-        },
-      });
-    });
-  }
-}
-
-
 /**
  * @property {IDBDatabase} db
  */
@@ -855,7 +839,7 @@ class Mal {
   }
 
   static async scavenge(url) {
-    const doc = await Get.doc(url);
+    const doc = await Util.fetchDoc(url);
     let el, score, users, favs;
 
     el = $('[itemprop="ratingValue"],' +
@@ -1322,6 +1306,19 @@ class Util {
 
   static nextTick() {
     return new Promise(setTimeout);
+  }
+
+  static fetchDoc(url) {
+    return new Promise(resolve => {
+      GM_xmlhttpRequest({
+        url,
+        method: 'GET',
+        onload(r) {
+          const doc = new DOMParser().parseFromString(r.response, 'text/html');
+          resolve(doc);
+        },
+      });
+    });
   }
 }
 
