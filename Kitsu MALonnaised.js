@@ -140,7 +140,7 @@ class App {
 
   static async init() {
     App.data = {};
-    agent.on(InterceptXHR.register(), v => App.processMappings(v).then(App.plant));
+    agent.on(InterceptXHR.register(), App.processMappings);
     agent.on(InterceptHistory.register(), App.onUrlChange);
     window.addEventListener('popstate', () => App.onUrlChange());
 
@@ -169,15 +169,8 @@ class App {
     let data = await Cache.read(type, slug) || {};
     App.data = data;
     if (!data.path) {
-      API[type]({
-        filter: {slug},
-        include: 'mappings',
-        fields: {
-          mappings: 'externalSite,externalId',
-          anime: 'id,slug',
-        },
-      }).then(App.processMappings)
-        .then(App.plant);
+      App.requestMappings(type, slug)
+        .then(App.processMappings);
       return;
     }
     if (data.expired) {
@@ -191,15 +184,26 @@ class App {
     App.plant(data);
   }
 
+  static requestMappings(type, slug) {
+    return API[type]({
+      filter: {slug},
+      include: 'mappings',
+      fields: {
+        mappings: 'externalSite,externalId',
+        anime: 'id,slug',
+      },
+    });
+  }
+
   static async processMappings(payload) {
     const url = Mal.findUrl(payload);
     if (!url)
       return;
     const {type, attributes: {slug}} = payload.data[0];
-    const data = await Cache.read(type, slug);
-    return data && !data.expired && data.score ?
-      data :
-      App.processMal({type, slug, url});
+    let data = await Cache.read(type, slug);
+    if (!data || data.expired || !data.score)
+      data = await App.processMal({type, slug, url});
+    App.plant(data);
   }
 
   static async processMal({type, slug, url, TID}) {
