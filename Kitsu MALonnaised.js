@@ -294,7 +294,6 @@ class App {
         transition: ${MAIN_TRANSITION};
       }
       ${ID.selectAll('ins')} {
-        margin-top: ${LAZY_MARGIN}px;
         display: block;
         width: 100%;
       }
