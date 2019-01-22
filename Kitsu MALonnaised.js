@@ -163,7 +163,7 @@ class App {
     if (!slug)
       App.data = {path};
     if (App.data.path === path) {
-      console.debug('onUrlChange', ['same path', path]);
+      console.warn('onUrlChange', ['same path', path]);
       return;
     }
     let data = await Cache.read(type, slug) || {};
@@ -174,7 +174,7 @@ class App {
       return;
     }
     if (data.expired) {
-      console.debug('onUrlChange', ['expired']);
+      console.warn('onUrlChange', ['expired']);
       App.plant(data);
     }
     if (data.expired || !data.score) {
@@ -207,7 +207,7 @@ class App {
   }
 
   static async processMal({type, slug, url, TID}) {
-    console.debug('processMal');
+    console.warn('processMal');
     App.busy = true;
     App.hide();
     const data = await Mal.scavenge(url || MalTypeId.toUrl(TID));
@@ -218,7 +218,7 @@ class App {
 
   static async plant(data) {
     if (!data || data.path === App.renderedPath) {
-      console.debug('plant', ['same path', data.path]);
+      console.warn('plant', ['same path', data.path]);
       return;
     }
 
@@ -750,7 +750,7 @@ class InterceptXHR {
       const u = new URL(url);
       u.searchParams.set('include', u.searchParams.get('include') + ',mappings');
       u.searchParams.set('fields[mappings]', 'externalSite,externalId');
-      console.debug('XHR:anime');
+      console.warn('XHR:anime');
       return u.href;
     }
     // https://kitsu.io/api/edge/castings?.....&page%5Blimit%5D=4&......
@@ -759,7 +759,7 @@ class InterceptXHR {
         url.includes('page%5Blimit%5D=4')) {
       this.send = InterceptXHR.sendDummy;
       this.setRequestHeader = InterceptXHR.dummy;
-      console.debug('XHR:castings');
+      console.warn('XHR:castings');
       return false;
     }
   }
@@ -916,7 +916,7 @@ class Mutant {
     if (Mutant.isWaiting(selector, skipCurrent))
       return agent.resolveOn('gotPath');
     const el = await Mutant.waitFor(selector, document.head, {skipCurrent});
-    agent.fire('gotPath', el);
+    agent.fire('gotPath', path);
     return el;
   }
 
@@ -954,7 +954,7 @@ class Mutant {
   static async waitFor(selector, base, {skipCurrent} = {}) {
     return !skipCurrent && $(selector, base) ||
       new Promise(resolve => {
-        console.debug('waitFor', [selector]);
+        console.warn('waitFor', [selector]);
         if (!Mutant._waiting)
           Mutant._waiting = new Set();
         Mutant._waiting.add(selector);
@@ -1233,7 +1233,7 @@ class Render {
       Mutant.gotAttribute(this.parentNode, 'href'),
       Mutant.gotPath(),
     ]);
-    console.debug('preclicked', [winner]);
+    console.warn('preclicked', [winner]);
     if (winner instanceof HTMLMetaElement)
       return;
 
