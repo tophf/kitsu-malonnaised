@@ -1006,7 +1006,7 @@ class Render {
 
   static all(data) {
     if (!Render.scrollObserver)
-      Render.scrollObserver = new IntersectionObserver(Render._load, {
+      Render.scrollObserver = new IntersectionObserver(Render._lazyLoad, {
         rootMargin: LAZY_MARGIN + 'px',
       });
 
@@ -1045,7 +1045,6 @@ class Render {
   }
 
   static characters({chars, url, type, slug}) {
-    let list;
     $remove('.media--main-characters');
     $create('section', {
       $mal: type,
@@ -1065,34 +1064,9 @@ class Render {
       $create('ul', {
         onmouseover: Render._charsHovered,
         onmouseout: Render._charsHovered,
-        children:
-          list =
-          chars.map(Render.char),
+        children: chars.map(Render.char),
       }),
     ]);
-    if (!chars)
-      return;
-    const num = list.length;
-    // autoload more on scroll
-    if (num >= MAL_STAFF_LIMIT &&
-        num <= MAL_CAST_LIMIT + MAL_STAFF_LIMIT) {
-      const lastChar = list.slice().reverse().find(el => !el.matches('[mal~="staff"]'));
-      const numCast = list.indexOf(lastChar) + 1;
-      if (numCast === MAL_CAST_LIMIT) {
-        Render.scrollObserver.observe(
-          $create('ins', {
-            [$LAZY_ATTR]: 'more-chars',
-            parent: lastChar,
-          }));
-      }
-      if (num - numCast === MAL_STAFF_LIMIT) {
-        Render.scrollObserver.observe(
-          $create('ins', {
-            [$LAZY_ATTR]: 'more-chars',
-            parent: list[num - 1],
-          }));
-      }
-    }
   }
 
   static char([type, [char, charId, charImg], [va, vaId, vaImg] = []]) {
@@ -1292,50 +1266,22 @@ class Render {
     }
   }
 
-  static _load(entries) {
+  static _lazyLoad(entries) {
     for (const e of entries) {
       if (e.isIntersecting) {
         const el = e.target;
         const url = el.getAttribute(LAZY_ATTR);
 
-        switch (el.localName) {
-          case 'img':
-            el.src = url;
-            break;
-          case 'ins':
-            if (el.matches(`[${LAZY_ATTR}^="more-"]`))
-              Render._loadMore(el);
-            break;
-          default:
-            el.style.backgroundImage = `url(${url})`;
+        if (el instanceof HTMLImageElement) {
+          el.src = url;
+        } else {
+          el.style.backgroundImage = `url(${url})`;
         }
 
         el.removeAttribute(LAZY_ATTR);
         Render.scrollObserver.unobserve(el);
       }
     }
-  }
-
-  static async _loadMore(el) {
-    const block = el.closest('[id]');
-    for (let el; (el = $(`ins[${LAZY_ATTR}]`, block));)
-      el.remove();
-    block.style.cursor = 'progress';
-
-    const doc = await Get.doc($('a', block).href);
-    const {data} = App;
-    data.chars = Mal.extractChars(doc);
-    Cache.write(data.type, data.slug, data);
-
-    block.style.cursor = '';
-    const hovered = block.matches(':hover');
-
-    Render.characters(data);
-    for (const el of $$(`[${LAZY_ATTR}]`, block))
-      Render.scrollObserver.observe(el);
-
-    if (hovered)
-      Render._charsHoveredTimer($('ul', block));
   }
 }
 
