@@ -403,16 +403,12 @@ class App {
         margin: -.5em 0 8px 0;
       }
       /* replace the site's chars */
-      #CHARS ul {
-        max-height: var(--${ID.me}-chars-height, calc(200px + 6.5em));
-        overflow: hidden;
-      }
-      #CHARS ul[hovered] {
-        max-height: none;
-      }
       #CHARS ul:not([hovered]) {
         display: flex;
         flex-wrap: wrap;
+      }
+      #CHARS ul:not([hovered]) li:nth-child(n + 9) {
+        display: none;
       }
       #CHARS ul:not([hovered]) li {
         width: calc(25% - 6px);
@@ -1010,27 +1006,16 @@ class Render {
 
   static all(data) {
     if (!Render.scrollObserver)
-      this.init();
+      Render.scrollObserver = new IntersectionObserver(Render._load, {
+        rootMargin: LAZY_MARGIN + 'px',
+      });
 
     Render.stats(data);
     Render.characters(data);
     Render.recommendations(data);
 
-    Render.lazyLoad();
-  }
-
-  static lazyLoad(base = document.body) {
-    for (const el of $$(`[${LAZY_ATTR}]`, base))
+    for (const el of $$(`[${LAZY_ATTR}]`, document.body))
       Render.scrollObserver.observe(el);
-  }
-
-  static init() {
-    Render.scrollObserver = new IntersectionObserver(Render._load, {
-      rootMargin: LAZY_MARGIN + 'px',
-    });
-    Render.charObserver = new IntersectionObserver(Render._setCharsHeight, {
-      root: $id(ID.CHARS),
-    });
   }
 
   static stats({score: [r, count] = ['N/A'], users, favs, url} = {}) {
@@ -1088,10 +1073,6 @@ class Render {
     if (!chars)
       return;
     const num = list.length;
-    // adjust the list block height
-    Render.charObserver.observe(
-      list[8] ||
-      $create('ins', {parent: list[num - 1]}));
     // autoload more on scroll
     if (num >= MAL_STAFF_LIMIT &&
         num <= MAL_CAST_LIMIT + MAL_STAFF_LIMIT) {
@@ -1335,18 +1316,6 @@ class Render {
     }
   }
 
-  static _setCharsHeight(entries) {
-    for (const e of entries) {
-      const chars = $id(ID.CHARS);
-      if (!chars.matches(':hover')) {
-        const prop = `--${ID.me}-chars-height`;
-        const height = e.target.offsetTop - $('ul', chars).offsetTop + 'px';
-        if (chars.style.getPropertyValue(prop) !== height)
-          chars.style.setProperty(prop, height);
-      }
-    }
-  }
-
   static async _loadMore(el) {
     const block = el.closest('[id]');
     for (let el; (el = $(`ins[${LAZY_ATTR}]`, block));)
@@ -1362,7 +1331,8 @@ class Render {
     const hovered = block.matches(':hover');
 
     Render.characters(data);
-    Render.lazyLoad(block);
+    for (const el of $$(`[${LAZY_ATTR}]`, block))
+      Render.scrollObserver.observe(el);
 
     if (hovered)
       Render._charsHoveredTimer($('ul', block));
