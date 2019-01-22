@@ -81,11 +81,9 @@ const agent = (() => {
     on(name, fn, thisArg) {
       data[name].set(fn, [thisArg]);
     },
-    once(name, fn, thisArg) {
-      data[name].set(fn, [thisArg, true]);
-    },
-    off(name, fn) {
-      data[name].delete(fn);
+    resolveOn(name, thisArg) {
+      return new Promise(resolve =>
+        data[name].set(resolve, [thisArg, true]));
     },
     fire(name, ...args) {
       console.groupCollapsed(name, args);
@@ -912,7 +910,7 @@ class Mutant {
     const selector = 'meta[property="og:url"]' +
                      (skipCurrent ? '' : `[content="${location.origin}/${path}"]`);
     if (Mutant.isWaiting(selector, skipCurrent))
-      return new Promise(resolve => agent.once('gotPath', resolve));
+      return agent.resolveOn('gotPath');
     const el = await Mutant.waitFor(selector, document.head, {skipCurrent});
     agent.fire('gotPath', el);
     return el;
