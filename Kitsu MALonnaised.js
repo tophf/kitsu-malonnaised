@@ -127,7 +127,9 @@ const API = (() => {
         }
       }
       const url = `${API_URL}${target[PATH]}?${new URLSearchParams(options)}`;
-      console.debug('API', [url]);
+      console.groupCollapsed('API', [url]);
+      console.trace();
+      console.groupEnd();
       return fetch(url, API_OPTIONS).then(r => r.json());
     },
   };
@@ -964,23 +966,25 @@ class Mutant {
     }
   }
 
-  static async gotAttribute(node, ...attrs) {
-    return new Promise(resolve => {
-      let timeout;
-      const ob = new MutationObserver(() => {
-        ob.disconnect();
-        clearTimeout(timeout);
-        resolve(node);
+  static async gotAttribute(node, ...attributes) {
+    return attributes.some(a => node.hasAttribute(a)) ?
+      node :
+      new Promise(resolve => {
+        let timeout;
+        const ob = new MutationObserver(() => {
+          ob.disconnect();
+          clearTimeout(timeout);
+          resolve(node);
+        });
+        ob.observe(node, {
+          attributes: true,
+          attributeFilter: attributes,
+        });
+        timeout = setTimeout(() => {
+          ob.disconnect();
+          resolve(false);
+        }, 5000);
       });
-      ob.observe(node, {
-        attributes: true,
-        attributeFilter: attrs,
-      });
-      timeout = setTimeout(() => {
-        ob.disconnect();
-        resolve(false);
-      }, 5000);
-    });
   }
 
   static async waitFor(selector, base, {skipCurrent} = {}) {
@@ -1275,7 +1279,8 @@ class Render {
       malLink.appendChild(image);
     }
 
-    image.onmousedown = null;
+    image.onclick = null;
+    image.onauxclick = null;
   }
 
   static malName(str) {
