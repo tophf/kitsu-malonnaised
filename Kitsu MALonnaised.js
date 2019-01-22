@@ -94,9 +94,8 @@ const agent = (() => {
       const listeners = data[name];
       for (const [fn, [thisArg, once]] of listeners) {
         fn.apply(thisArg, args);
-        if (once) {
+        if (once)
           listeners.delete(fn);
-        }
       }
     },
   };
@@ -121,9 +120,8 @@ const API = (() => {
       for (const [k, v] of Object.entries(options)) {
         if (typeof v === 'object') {
           delete options[k];
-          for (const [kk, vv] of Object.entries(v)) {
+          for (const [kk, vv] of Object.entries(v))
             options[`${k}[${kk}]`] = vv;
-          }
         }
       }
       const url = `${API_URL}${target[PATH]}?${new URLSearchParams(options)}`;
@@ -164,9 +162,8 @@ class App {
   static async onUrlChange(path = location.pathname) {
     const [, type, slug] = path.match(/\/(anime|manga)\/([^/?#]+)(?:[?#].*)?$|$/);
     App.hide();
-    if (!slug) {
+    if (!slug)
       App.data = {path};
-    }
     if (App.data.path === path) {
       console.debug('onUrlChange', ['same path', path]);
       return;
@@ -198,9 +195,8 @@ class App {
 
   static async processMappings(payload) {
     const url = Mal.findUrl(payload);
-    if (!url) {
+    if (!url)
       return;
-    }
     const {type, attributes: {slug}} = payload.data[0];
     const data = await Cache.read(type, slug);
     return data && !data.expired && data.score ?
@@ -242,12 +238,10 @@ class App {
   static async hide() {
     App.renderedPath = '';
     await Util.nextTick();
-    if (!App.busy) {
+    if (!App.busy)
       return;
-    }
-    for (const el of $$(ID.selectAll())) {
+    for (const el of $$(ID.selectAll()))
       el.style.opacity = 0;
-    }
   }
 
   static initStyles() {
@@ -591,16 +585,14 @@ class Cache {
   static async read(type, slug) {
     const path = type + '/' + slug;
     const data = await Cache.idb.get(path);
-    if (!data) {
+    if (!data)
       return;
-    }
     data.path = path;
     if (Date.now() - data.time > CACHE_DURATION) {
       data.expired = true;
     } else if (data.lz) {
-      for (const [k, v] of Object.entries(data.lz)) {
+      for (const [k, v] of Object.entries(data.lz))
         data[k] = Util.parseJson(LZStringUnsafe.decompressFromUTF16(v));
-      }
       data.lz = undefined;
     }
     return data;
@@ -611,9 +603,8 @@ class Cache {
     data.time = Date.now();
     const toWrite = {};
     for (const [k, v] of Object.entries(data)) {
-      if (v === undefined) {
+      if (v === undefined)
         continue;
-      }
       if (v && typeof v === 'object') {
         const str = JSON.stringify(v);
         if (str.length > 100) {
@@ -716,9 +707,8 @@ class IDB {
           let op = this.db
             .transaction(this.storeName, write ? 'readwrite' : 'readonly')
             .objectStore(this.storeName);
-          if (index) {
+          if (index)
             op = op.index(index);
-          }
           op = op[method](...args);
           return raw ?
             op :
@@ -753,9 +743,8 @@ class InterceptXHR {
       open(method, url, ...args) {
         if (url.startsWith(API_URL)) {
           const newUrl = InterceptXHR.onOpen.call(this, url);
-          if (newUrl === false) {
+          if (newUrl === false)
             return;
-          }
           if (newUrl) {
             url = newUrl;
             this.addEventListener('load', onLoad, {once: true});
@@ -819,18 +808,16 @@ class Mal {
   }
 
   static extract(img, stripId) {
-    if (!img) {
+    if (!img)
       return;
-    }
     const text = Util.decodeHtml(img.alt) || 0;
     // https://myanimelist.net/character/101457/Chika_Kudou
     // https://myanimelist.net/recommendations/anime/31859-35790
     // https://myanimelist.net/anime/19815/No_Game_No_Life?suggestion
     const a = img.closest('a');
     let aId = a && a.href.match(/\/(\d+(?:-\d+)?)|$/)[1] || 0;
-    if (stripId && aId && aId.includes('-')) {
+    if (stripId && aId && aId.includes('-'))
       aId = aId.replace(stripId, '');
-    }
     // https://cdn.myanimelist.net/r/23x32/images/characters/7/331067.webp?s=xxxxxxxxxx
     // https://cdn.myanimelist.net/r/23x32/images/voiceactors/1/47102.jpg?s=xxxxxxxxx
     // https://cdn.myanimelist.net/r/90x140/images/anime/13/77976.webp?s=xxxxxxx
@@ -844,9 +831,8 @@ class Mal {
     const chars = [];
     for (const img of $$('a[href*="/character/"] img, a[href*="/people/"] img', doc)) {
       const parent = img.closest('table');
-      if (processed.has(parent)) {
+      if (processed.has(parent))
         continue;
-      }
       // we're assuming a character is a table that contains an actor's table
       // and the character's img comes first so we can add the nested actor's table
       // thus skipping it on subsequent matches for 'a[href*="/people/"] img'
@@ -883,9 +869,8 @@ class Mal {
     score = score && Number(score.match(/[\d.]+|$/)[0]) || score;
     const ratingCount = Util.str2num($text('[itemprop="ratingCount"]', doc));
 
-    while (el.parentElement && !el.parentElement.textContent.includes('Members:')) {
+    while (el.parentElement && !el.parentElement.textContent.includes('Members:'))
       el = el.parentElement;
-    }
     while ((!users || !favs) && (el = el.nextElementSibling)) {
       const txt = el.textContent;
       users = users || Util.str2num(txt.match(/Members:\s*([\d,]+)|$/)[1]);
@@ -918,9 +903,8 @@ class MalTypeId {
   }
 
   static toUrl(typeId) {
-    if (!typeId.includes('/')) {
+    if (!typeId.includes('/'))
       typeId = MalTypeId.fromTID(typeId).join('/');
-    }
     return MAL_URL + typeId;
   }
 
@@ -948,9 +932,8 @@ class Mutant {
     const skipCurrent = !path;
     const selector = 'meta[property="og:url"]' +
                      (skipCurrent ? '' : `[content="${location.origin}/${path}"]`);
-    if (Mutant.isWaiting(selector, skipCurrent)) {
+    if (Mutant.isWaiting(selector, skipCurrent))
       return new Promise(resolve => agent.once('gotPath', resolve));
-    }
     const el = await Mutant.waitFor(selector, document.head, {skipCurrent});
     agent.fire('gotPath', el);
     return el;
@@ -991,9 +974,8 @@ class Mutant {
     return !skipCurrent && $(selector, base) ||
       new Promise(resolve => {
         console.debug('waitFor', [selector]);
-        if (!Mutant._waiting) {
+        if (!Mutant._waiting)
           Mutant._waiting = new Set();
-        }
         Mutant._waiting.add(selector);
         new MutationObserver((mutations, ob) => {
           for (var i = 0, m; (m = mutations[i++]);) {
@@ -1015,9 +997,8 @@ class Mutant {
       return false;
     } else if (asPrefix) {
       for (const s of Mutant._waiting) {
-        if (s.startsWith(selector)) {
+        if (s.startsWith(selector))
           return true;
-        }
       }
     } else {
       return Mutant._waiting.has(selector);
@@ -1029,9 +1010,8 @@ class Mutant {
 class Render {
 
   static all(data) {
-    if (!Render.scrollObserver) {
+    if (!Render.scrollObserver)
       this.init();
-    }
 
     Render.stats(data);
     Render.characters(data);
@@ -1041,9 +1021,8 @@ class Render {
   }
 
   static lazyLoad(base = document.body) {
-    for (const el of $$(`[${LAZY_ATTR}]`, base)) {
+    for (const el of $$(`[${LAZY_ATTR}]`, base))
       Render.scrollObserver.observe(el);
-    }
   }
 
   static init() {
@@ -1107,9 +1086,8 @@ class Render {
           chars.map(Render.char),
       }),
     ]);
-    if (!chars) {
+    if (!chars)
       return;
-    }
     const num = list.length;
     // adjust the list block height
     Render.charObserver.observe(
@@ -1308,26 +1286,23 @@ class Render {
   static async _kitsuLinkPreclicked(e) {
     this.onclick = null;
     this.onauxclick = null;
-    if (e.altKey || e.metaKey || e.button > 1) {
+    if (e.altKey || e.metaKey || e.button > 1)
       return;
-    }
 
     const winner = await Promise.race([
       Mutant.gotAttribute(this.parentNode, 'href'),
       Mutant.gotPath(),
     ]);
     console.debug('preclicked', [winner]);
-    if (winner instanceof HTMLMetaElement) {
+    if (winner instanceof HTMLMetaElement)
       return;
-    }
 
     const {button: btn, ctrlKey: c, shiftKey: s} = e;
     const link = this.parentNode;
     if (!btn && !c) {
       link.dispatchEvent(new MouseEvent('click', e));
-      if (!s) {
+      if (!s)
         App.onUrlChange(link.pathname);
-      }
     } else {
       GM_openInTab(link.href, {
         active: btn === 0 && c && s,
@@ -1348,9 +1323,8 @@ class Render {
             el.src = url;
             break;
           case 'ins':
-            if (el.matches(`[${LAZY_ATTR}^="more-"]`)) {
+            if (el.matches(`[${LAZY_ATTR}^="more-"]`))
               Render._loadMore(el);
-            }
             break;
           default:
             el.style.backgroundImage = `url(${url})`;
@@ -1368,18 +1342,16 @@ class Render {
       if (!chars.matches(':hover')) {
         const prop = `--${ID.me}-chars-height`;
         const height = e.target.offsetTop - $('ul', chars).offsetTop + 'px';
-        if (chars.style.getPropertyValue(prop) !== height) {
+        if (chars.style.getPropertyValue(prop) !== height)
           chars.style.setProperty(prop, height);
-        }
       }
     }
   }
 
   static async _loadMore(el) {
     const block = el.closest('[id]');
-    for (let el; (el = $(`ins[${LAZY_ATTR}]`, block));) {
+    for (let el; (el = $(`ins[${LAZY_ATTR}]`, block));)
       el.remove();
-    }
     block.style.cursor = 'progress';
 
     const doc = await Get.doc($('a', block).href);
@@ -1393,9 +1365,8 @@ class Render {
     Render.characters(data);
     Render.lazyLoad(block);
 
-    if (hovered) {
+    if (hovered)
       Render._charsHoveredTimer($('ul', block));
-    }
   }
 }
 
@@ -1420,12 +1391,10 @@ class Util {
         String.fromCharCode(parseInt(code, hex ? 16 : 10)));
     }
     if (!str.includes('&') ||
-        !/&\w+;/.test(str)) {
+        !/&\w+;/.test(str))
       return str;
-    }
-    if (!Mal.parser) {
+    if (!Mal.parser)
       Mal.parser = new DOMParser();
-    }
     const doc = Mal.parser.parseFromString(str, 'text/html');
     return doc.body.firstChild.textContent;
   }
@@ -1491,9 +1460,8 @@ function $create(tag, props = {}, children) {
 
   const hasOwnProperty = Object.hasOwnProperty;
   for (const k in props) {
-    if (!hasOwnProperty.call(props, k)) {
+    if (!hasOwnProperty.call(props, k))
       continue;
-    }
     const v = props[k];
     switch (k) {
       case 'children':
@@ -1504,9 +1472,8 @@ function $create(tag, props = {}, children) {
       default: {
         const slice = k.startsWith('$') ? 1 : 0;
         if (slice || ns) {
-          if (el.getAttribute(k.slice(slice)) !== v) {
+          if (el.getAttribute(k.slice(slice)) !== v)
             el.setAttribute(k.slice(slice), v);
-          }
         } else if (el[k] !== v) {
           el[k] = v;
         }
@@ -1514,29 +1481,23 @@ function $create(tag, props = {}, children) {
     }
   }
 
-  if (!children) {
+  if (!children)
     children = props.children;
-  }
   if (children) {
-    if (el.firstChild) {
+    if (el.firstChild)
       el.textContent = '';
-    }
-    if (typeof children !== 'string' && Symbol.iterator in children) {
+    if (typeof children !== 'string' && Symbol.iterator in children)
       el.append(...[...children].filter(Boolean));
-    } else {
+    else
       el.append(children);
-    }
   }
 
-  if (props.parent && props.parent !== el.parentNode) {
+  if (props.parent && props.parent !== el.parentNode)
     props.parent.appendChild(el);
-  }
-  if (props.before && props.before !== el.nextSibling) {
+  if (props.before && props.before !== el.nextSibling)
     props.before.insertAdjacentElement('beforeBegin', el);
-  }
-  if (props.after && props.after !== el.previousSibling) {
+  if (props.after && props.after !== el.previousSibling)
     props.after.insertAdjacentElement('afterEnd', el);
-  }
 
   return el;
 }
@@ -1545,9 +1506,8 @@ function $createLink(props, children) {
   const a = $create('a', props, children);
   a.rel = 'noopener noreferrer';
   a.target = '_blank';
-  if (!(a.lastElementChild instanceof SVGElement)) {
+  if (!(a.lastElementChild instanceof SVGElement))
     a.appendChild(EXT_LINK.cloneNode(true));
-  }
   return a;
 }
 
@@ -1555,9 +1515,8 @@ function $remove(selectorOrNode, base) {
   const el = selectorOrNode instanceof Node ?
     selectorOrNode :
     $(selectorOrNode, base);
-  if (el) {
+  if (el)
     el.remove();
-  }
 }
 
 App.init();
