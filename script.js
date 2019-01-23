@@ -409,6 +409,7 @@ class App {
         display: flex;
         flex-wrap: wrap;
       }
+      #CHARS ul[mal~="one-row"]:not([hovered]) li:nth-child(n + 5),
       #CHARS ul:not([hovered]) li:nth-child(n + 9) {
         display: none;
       }
@@ -1048,6 +1049,7 @@ class Render {
         }),
       ]),
       $create('ul', {
+        $mal: chars.filter(c => c[1][2]).length < 7 ? 'one-row' : '',
         onmouseover: Render._charsHovered,
         onmouseout: Render._charsHovered,
         children: chars.map(Render.char),
