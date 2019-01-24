@@ -1033,15 +1033,24 @@ class Render {
     });
   }
 
-  static characters({chars, url, type, slug}) {
+  static characters({chars = [], url, type, slug}) {
     $remove('.media--main-characters');
+    const numChars = chars.length;
+    let numCastPics = 0;
+    let numCast = 0;
+    for (const [/*type*/, [char, /*charId*/, charImg]] of chars) {
+      numCast += char ? 1 : 0;
+      numCastPics += charImg ? 1 : 0;
+    }
+    const moreCharsPossible = numCast === MAL_CAST_LIMIT ||
+                              numChars - numCast === MAL_STAFF_LIMIT;
     $create('section', {
       $mal: type,
       id: ID.CHARS,
       after: $('.media--information'),
       className: 'media--related',
-      $style: chars ? '' : 'opacity:0; display:none',
-    }, chars && [
+      $style: numChars ? '' : 'opacity:0; display:none',
+    }, numChars && [
       $create('h5', [
         'Characters ',
         $createLink({
@@ -1051,10 +1060,16 @@ class Render {
         }),
       ]),
       $create('ul', {
-        $mal: chars.filter(c => c[1][2]).length < 7 ? 'one-row' : '',
+        $mal: numCastPics <= 6 ? 'one-row' : '',
         onmouseover: Render._charsHovered,
         onmouseout: Render._charsHovered,
         children: chars.map(Render.char),
+      }),
+      moreCharsPossible &&
+      $create('a', {
+        href: `/${App.data.path}/characters`,
+        className: 'more-link',
+        textContent: 'View all characters',
       }),
     ]);
   }
