@@ -36,6 +36,7 @@ let MAL_IMG_EXT = '.jpg';
 const MAL_RECS_LIMIT = 24;
 const MAL_CAST_LIMIT = 10;
 const MAL_STAFF_LIMIT = 4;
+const KITSU_RECS_PER_ROW = 4;
 const KITSU_GRAY_LINK_CLASS = 'import-title';
 // IntersectionObserver margin
 const LAZY_MARGIN = 200;
@@ -44,6 +45,7 @@ const $LAZY_ATTR = '$' + LAZY_ATTR;
 
 const DB_NAME = 'MALonnaise';
 const DB_STORE_NAME = 'data';
+const DB_FIELDS = 'path TID time score users favs chars recs'.split(' ');
 
 const HOUR = 3600e3;
 const CACHE_DURATION = 24 * HOUR;
@@ -212,7 +214,8 @@ class App {
     App.hide();
     const data = await Mal.scavenge(url || MalTypeId.toUrl(TID));
     data.TID = TID || MalTypeId.urlToTID(url);
-    Cache.write(type, slug, data);
+    data.path = type + '/' + slug;
+    setTimeout(Cache.write, 0, type, slug, data);
     return data;
   }
 
@@ -259,7 +262,7 @@ class App {
     const MAIN_TRANSITION = 'opacity .25s';
 
     const RECS_MIN_HEIGHT = 220;
-    const RECS_MAX_HEIGHT = RECS_MIN_HEIGHT * 10;
+    const RECS_MAX_HEIGHT = 20e3;
     const RECS_IMG_MARGIN = '.5rem';
     const RECS_TRANSITION_TIMING = '.5s .25s';
 
@@ -476,7 +479,7 @@ class App {
         list-style: none;
         position: relative;
         margin: 0 .5rem .5rem 0;
-        width: calc(${Util.num2pct(1 / 4)} - ${RECS_IMG_MARGIN});
+        width: calc(${Util.num2pct(1 / KITSU_RECS_PER_ROW)} - ${RECS_IMG_MARGIN});
         line-height: 1;
         display: flex;
         flex-direction: column;
@@ -486,6 +489,14 @@ class App {
       }
       #RECS li[mal="auto-rec"]:hover {
         opacity: 1;
+      }
+      #RECS li[mal="more"] {
+        width: 100%;
+        text-align: center;
+        padding: 0;
+      }
+      #RECS li[mal="more"] a {
+        padding: 1em;
       }
       #RECS a[mal="title"] {
         margin: 0 0 ${Util.num2pct(315 / 225)};
@@ -602,7 +613,8 @@ class Cache {
     data.path = type + '/' + slug;
     data.time = Date.now();
     const toWrite = {};
-    for (const [k, v] of Object.entries(data)) {
+    for (const k of DB_FIELDS) {
+      const v = data[k];
       if (v === undefined)
         continue;
       if (v && typeof v === 'object') {
@@ -877,6 +889,37 @@ class Mal {
       recs: recs.length ? recs : undefined,
     };
   }
+
+  static async scavengeRecs(url) {
+    const doc = await Util.fetchDoc(url);
+    const IDX_NAME = 0;
+    const IDX_ID = 1;
+    const IDX_COUNT = 3;
+    const rxType = new RegExp(`^${url.split('/')[3]}: `, 'i');
+    const allRecs = $$('a[href*="/recommendations/"]', doc)
+      .map(a => {
+        const entry = a.closest('table');
+        const more = $text('a:not([href^="/"]):not([href^="http"])', entry);
+        const count = parseInt(more.match(/\s\d+\s|$/)[0]) + 1 || 1;
+        const info = Mal.extract($('a img', entry));
+        info[0] = info[0].replace(rxType, '');
+        info.push(count);
+        return info;
+      });
+    const data = App.data;
+    const oldRecs = data.recs || [];
+    const hasId = (recs, id) => recs.some(r => r[IDX_ID] === id);
+    const isUniqueAutoRec = ([, id, , count]) => !count && !hasId(allRecs, id);
+    allRecs.push(...oldRecs.filter(isUniqueAutoRec));
+    allRecs.sort((a, b) => b[IDX_COUNT] - a[IDX_COUNT] ||
+                           a[IDX_NAME] < b[IDX_NAME] && -1 ||
+                           a[IDX_NAME] > b[IDX_NAME] && 1 ||
+                           0);
+    const newRecs = allRecs.filter(([, id]) => !hasId(oldRecs, id));
+    data.recs = allRecs;
+    setTimeout(Cache.write, 0, data.type, data.slug, data);
+    return newRecs;
+  }
 }
 
 
@@ -1003,7 +1046,7 @@ class Render {
     Render.characters(data);
     Render.recommendations(data);
 
-    for (const el of $$(`[${LAZY_ATTR}]`, document.body))
+    for (const el of $$(ID.selectAll(`[${LAZY_ATTR}]`), document.body))
       Render.scrollObserver.observe(el);
   }
 
@@ -1137,12 +1180,58 @@ class Render {
           textContent: 'on MAL',
         }),
       ]),
-      $create('ul', recs.map(Render.rec, arguments[0])),
+      $create('ul', {
+        onmouseover: Render.recommendationsHidden,
+      }, recs.slice(0, KITSU_RECS_PER_ROW).map(Render.rec, arguments[0])),
     ]);
+  }
+
+  static recommendationsHidden() {
+    this.onmouseover = null;
+    const ul = $('ul', $id(ID.RECS));
+    ul.append(
+      ...App.data.recs.slice(KITSU_RECS_PER_ROW)
+        .map(Render.rec, App.data));
+    if (App.data.recs.length === MAL_RECS_LIMIT) {
+      $create('li', {
+        className: 'media-summary',
+        parent: ul,
+        $mal: 'more',
+      },
+        $create('a', {
+          href: '#',
+          onclick: Render.recommendationsMore,
+          className: 'more-link',
+          textContent: 'Load more recommendations',
+        }));
+    }
+  }
+
+  static async recommendationsMore(e) {
+    e.preventDefault();
+    Object.assign(this, {
+      onclick: null,
+      textContent: 'Loading...',
+      style: 'pointer-events:none; cursor: wait',
+    });
+    const block = $id(ID.RECS);
+    block.style.cursor = 'progress';
+    const newRecs = await Mal.scavengeRecs($('a', block).href);
+    const newElements = newRecs.map(Render.rec, App.data);
+    $('ul', block).append(...newElements);
+    block.style.cursor = '';
+    setTimeout(() =>
+      this.parentNode.remove());
   }
 
   static rec([name, id, img, count]) {
     const {type, TID} = this;
+    const pic = $create('div', {
+      [$LAZY_ATTR]: `${MAL_CDN_URL}images/${type}/${img}${MAL_IMG_EXT}`,
+      onclick: Render._kitsuLinkPreclicked,
+      onauxclick: Render._kitsuLinkPreclicked,
+    });
+    Render.scrollObserver.observe(pic);
     return (
       $create('li', {
         onmouseover: Render.kitsuLink,
@@ -1164,11 +1253,7 @@ class Render {
           className: KITSU_GRAY_LINK_CLASS,
           children: $create('span', name),
         }),
-        $create('div', {
-          [$LAZY_ATTR]: `${MAL_CDN_URL}images/${type}/${img}${MAL_IMG_EXT}`,
-          onclick: Render._kitsuLinkPreclicked,
-          onauxclick: Render._kitsuLinkPreclicked,
-        }),
+        pic,
       ])
     );
   }
