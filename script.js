@@ -179,10 +179,8 @@ class App {
       console.warn('onUrlChange', ['expired']);
       App.plant(data);
     }
-    if (data.expired || !data.score) {
+    if (data.expired || !data.score)
       data = await App.processMal({type, slug, TID: data.TID});
-      App.data = data;
-    }
     App.plant(data);
   }
 
@@ -221,10 +219,10 @@ class App {
 
   static async plant(data) {
     if (!data || data.path === App.renderedPath) {
-      console.warn('plant', ['same path', data.path]);
+      console.warn('plant', data ? ['same path', data.path] : 'no data');
       return;
     }
-
+    App.data = data;
     const [type, slug] = data.path.split('/');
     Object.defineProperties(data, {
       type: {value: type, configurable: true},
