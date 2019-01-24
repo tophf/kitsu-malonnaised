@@ -629,6 +629,8 @@ class Cache {
           e.code === DOMException.QUOTA_EXCEEDED_ERR) {
         await Cache.cleanup();
         await Cache.idb.put(toWrite);
+      } else {
+        console.error(e);
       }
     }
   }
