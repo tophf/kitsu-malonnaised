@@ -594,9 +594,9 @@ class Cache {
     const data = await Cache.idb.get(path);
     if (!data)
       return;
-    if (Date.now() - data.time > CACHE_DURATION) {
+    if (Date.now() - data.time > CACHE_DURATION)
       data.expired = true;
-    } else if (data.lz) {
+    if (data.lz) {
       for (const [k, v] of Object.entries(data.lz))
         data[k] = Util.parseJson(LZStringUnsafe.decompressFromUTF16(v));
       data.lz = undefined;
