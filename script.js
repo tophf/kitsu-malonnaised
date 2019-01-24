@@ -889,8 +889,10 @@ class Mal {
 
   static async scavengeRecs(url) {
     const doc = await Util.fetchDoc(url);
+    const data = App.data;
+    const oldRecs = data.recs || [];
     const rxType = new RegExp(`^${url.split('/')[3]}: `, 'i');
-    const allRecs = $$('a[href*="/recommendations/"]', doc)
+    data.recs = $$('a[href*="/recommendations/"]', doc)
       .map(a => {
         const entry = a.closest('table');
         const more = $text('a:not([href^="/"]):not([href^="http"])', entry);
@@ -900,14 +902,9 @@ class Mal {
         info.push(count);
         return info;
       });
-    const data = App.data;
-    const oldRecs = data.recs || [];
-    const isUniqueAutoRec = ([, id, , count]) => !count && !MalRecs.hasId(allRecs, id);
-    allRecs.push(...oldRecs.filter(isUniqueAutoRec));
-    allRecs.sort(MalRecs.sortFn);
-    data.recs = allRecs;
+    data.recs.sort(MalRecs.sortFn);
     setTimeout(Cache.write, 0, data.type, data.slug, data);
-    return MalRecs.subtract(allRecs, oldRecs);
+    return MalRecs.subtract(data.recs, oldRecs);
   }
 }
 
