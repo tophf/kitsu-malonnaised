@@ -213,6 +213,8 @@ class App {
     const data = await Mal.scavenge(url || MalTypeId.toUrl(TID));
     data.TID = TID || MalTypeId.urlToTID(url);
     data.path = type + '/' + slug;
+    if (App.data.recs)
+      data.recs.push(...MalRecs.subtract(App.data.recs, data.recs));
     setTimeout(Cache.write, 0, type, slug, data);
     return data;
   }
@@ -890,9 +892,6 @@ class Mal {
 
   static async scavengeRecs(url) {
     const doc = await Util.fetchDoc(url);
-    const IDX_NAME = 0;
-    const IDX_ID = 1;
-    const IDX_COUNT = 3;
     const rxType = new RegExp(`^${url.split('/')[3]}: `, 'i');
     const allRecs = $$('a[href*="/recommendations/"]', doc)
       .map(a => {
@@ -906,17 +905,36 @@ class Mal {
       });
     const data = App.data;
     const oldRecs = data.recs || [];
-    const hasId = (recs, id) => recs.some(r => r[IDX_ID] === id);
-    const isUniqueAutoRec = ([, id, , count]) => !count && !hasId(allRecs, id);
+    const isUniqueAutoRec = ([, id, , count]) => !count && !MalRecs.hasId(allRecs, id);
     allRecs.push(...oldRecs.filter(isUniqueAutoRec));
-    allRecs.sort((a, b) => b[IDX_COUNT] - a[IDX_COUNT] ||
-                           a[IDX_NAME] < b[IDX_NAME] && -1 ||
-                           a[IDX_NAME] > b[IDX_NAME] && 1 ||
-                           0);
-    const newRecs = allRecs.filter(([, id]) => !hasId(oldRecs, id));
+    allRecs.sort(MalRecs.sortFn);
     data.recs = allRecs;
     setTimeout(Cache.write, 0, data.type, data.slug, data);
-    return newRecs;
+    return MalRecs.subtract(allRecs, oldRecs);
+  }
+}
+
+
+const REC_IDX_NAME = 0;
+const REC_IDX_ID = 1;
+const REC_IDX_COUNT = 3;
+
+
+class MalRecs {
+
+  static hasId(recs, id) {
+    return recs.some(r => r[REC_IDX_ID] === id);
+  }
+
+  static subtract(recsA, recsB) {
+    return recsA.filter(([, id]) => !MalRecs.hasId(recsB, id));
+  }
+
+  static sortFn(a, b) {
+    return b[REC_IDX_COUNT] - a[REC_IDX_COUNT] ||
+           a[REC_IDX_NAME] < b[REC_IDX_NAME] && -1 ||
+           a[REC_IDX_NAME] > b[REC_IDX_NAME] && 1 ||
+           0;
   }
 }
 
