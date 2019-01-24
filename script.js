@@ -562,7 +562,7 @@ class App {
         margin-bottom: .25em;
       }
     `
-      // language=JS
+    // language=JS
     .replace(
       new RegExp(`#(?=${Object.keys(ID).join('|')})\\b`, 'g'),
       `#${ID.me}-`
