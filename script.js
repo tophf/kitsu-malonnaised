@@ -88,9 +88,7 @@ const agent = (() => {
         data[name].set(resolve, [thisArg, true]));
     },
     fire(name, ...args) {
-      console.groupCollapsed(name, args);
-      console.trace();
-      console.groupEnd();
+      console.warn(name, args);
       const listeners = data[name];
       for (const [fn, [thisArg, once]] of listeners) {
         fn.apply(thisArg, args);
@@ -125,9 +123,7 @@ const API = (() => {
         }
       }
       const url = `${API_URL}${target[PATH]}?${new URLSearchParams(options)}`;
-      console.groupCollapsed('API', [url]);
-      console.trace();
-      console.groupEnd();
+      console.warn('API', [url]);
       return fetch(url, API_OPTIONS).then(r => r.json());
     },
   };
