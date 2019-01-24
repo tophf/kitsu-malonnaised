@@ -594,7 +594,6 @@ class Cache {
     const data = await Cache.idb.get(path);
     if (!data)
       return;
-    data.path = path;
     if (Date.now() - data.time > CACHE_DURATION) {
       data.expired = true;
     } else if (data.lz) {
