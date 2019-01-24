@@ -370,7 +370,8 @@ class App {
       #CHARS div[mal]:first-child a {
         font-weight: bold;
       }
-      #CHARS li a[mal]::after {
+      #CHARS li a svg {
+        vertical-align: middle;
         line-height: 1.0;
       }
       #CHARS span {
@@ -402,7 +403,8 @@ class App {
       }
       #CHARS small {
         display: block;
-        margin: -.5em 0 8px 0;
+        margin: 0 0 8px 0;
+        line-height: 1.0;
       }
       /* replace the site's chars */
       #CHARS ul:not([hovered]) {
