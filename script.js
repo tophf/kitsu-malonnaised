@@ -380,7 +380,7 @@ class App {
         overflow: hidden;
         text-overflow: ellipsis;
         max-width: calc(100% - 2 * ${EXT_LINK_SIZE_EM}em); /* room for the ext link icon */
-        vertical-align: sub;
+        vertical-align: middle;
         line-height: 1.0;
       }
       #CHARS a div {
