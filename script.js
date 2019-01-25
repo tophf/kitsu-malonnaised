@@ -1048,16 +1048,51 @@ class Render {
 
   static all(data) {
     if (!Render.scrollObserver)
-      Render.scrollObserver = new IntersectionObserver(Render._lazyLoad, {
-        rootMargin: LAZY_MARGIN + 'px',
-      });
+      Render.init();
 
     Render.stats(data);
     Render.characters(data);
     Render.recommendations(data);
+  }
 
-    for (const el of $$(ID.selectAll(`[${LAZY_ATTR}]`), document.body))
-      Render.scrollObserver.observe(el);
+  static init() {
+    Render.scrollObserver = new IntersectionObserver(Render._lazyLoad, {
+      rootMargin: LAZY_MARGIN + 'px',
+    });
+    {
+      let recLink, nameLink, name, pic;
+      Render._recNode =
+        $create('li', {$mal: ''}, [
+          $create('small',
+            recLink =
+            $createLink({
+              $mal: 'rec',
+              href: '#',
+              textContent: ' ',
+              className: KITSU_GRAY_LINK_CLASS,
+            })),
+          nameLink =
+          $createLink({
+            $mal: 'title',
+            href: '#',
+            title: ' ',
+            className: KITSU_GRAY_LINK_CLASS,
+          },
+            name =
+            $create('span', ' ')),
+          pic =
+          $create('div', {[$LAZY_ATTR]: ''}),
+        ]);
+      Render._recParts = {
+        type: Render._recNode.attributes.mal,
+        recHref: recLink.attributes.href,
+        recText: recLink.firstChild,
+        nameHref: nameLink.attributes.href,
+        nameTitle: nameLink.attributes.title,
+        nameText: name.firstChild,
+        src: pic.attributes[LAZY_ATTR],
+      };
+    }
   }
 
   static stats({score: [r, count] = ['N/A'], users, favs, url} = {}) {
@@ -1132,6 +1167,7 @@ class Render {
       $create('li', !charImg && {
         $mal: 'no-char-pic' + (char ? '' : ' staff'),
       });
+    let pic;
     if (char) {
       $create('div', {
         $mal: 'char',
@@ -1143,6 +1179,7 @@ class Render {
         }, [
           charImg &&
           $create('div',
+            pic =
             $create('img', {
               [$LAZY_ATTR]: `${MAL_CDN_URL}images/characters/${charImg}${MAL_IMG_EXT}`,
             })),
@@ -1151,6 +1188,8 @@ class Render {
         type !== 'Supporting' &&
         $create('small', type),
       ]);
+      if (pic)
+        Render.scrollObserver.observe(pic);
     }
     if (va) {
       $create('div', {
@@ -1163,6 +1202,7 @@ class Render {
         }, [
           vaImg &&
           $create('div',
+            pic =
             $create('img', {
               [$LAZY_ATTR]: `${MAL_CDN_URL}images/voiceactors/${vaImg}.jpg`,
             })),
@@ -1171,6 +1211,8 @@ class Render {
         !char &&
         $create('small', type),
       ]);
+      if (pic)
+        Render.scrollObserver.observe(pic);
     }
     return el;
   }
@@ -1236,36 +1278,27 @@ class Render {
 
   static rec([name, id, img, count]) {
     const {type, TID} = this;
-    const pic = $create('div', {
-      [$LAZY_ATTR]: `${MAL_CDN_URL}images/${type}/${img}${MAL_IMG_EXT}`,
-      onclick: Render._kitsuLinkPreclicked,
-      onauxclick: Render._kitsuLinkPreclicked,
-    });
+    const p = Render._recParts;
+    p.type.nodeValue = count ? '' : 'auto-rec';
+    if (count) {
+      p.recHref.nodeValue = `${MAL_URL}recommendations/${type}/${id}-${TID.slice(1)}`;
+      p.recText.nodeValue = `${count} rec${count > 1 ? 's' : ''}`;
+    }
+    p.nameHref.nodeValue = `${MAL_URL}${type}/${id}`;
+    p.nameTitle.nodeValue = name;
+    p.nameText.nodeValue = name;
+    p.src.nodeValue = `${MAL_CDN_URL}images/${type}/${img}${MAL_IMG_EXT}`;
+
+    const el = Render._recNode.cloneNode(true);
+    el.onmouseover = Render.kitsuLink;
+    if (!count) {
+      const recLink = el.getElementsByTagName('a')[0];
+      recLink.parentNode.replaceChild(document.createTextNode('auto-rec'), recLink);
+    }
+    const pic = el.getElementsByTagName('div')[0];
+    pic.onclick = pic.onauxclick = Render._kitsuLinkPreclicked;
     Render.scrollObserver.observe(pic);
-    return (
-      $create('li', {
-        onmouseover: Render.kitsuLink,
-        $mal: count ? '' : 'auto-rec',
-      }, [
-        $create('small',
-          !count ?
-            'auto-rec' :
-            $createLink({
-              $mal: 'rec',
-              href: `${MAL_URL}recommendations/${type}/${id}-${TID.slice(1)}`,
-              textContent: `${count} rec${count > 1 ? 's' : ''}`,
-              className: KITSU_GRAY_LINK_CLASS,
-            })),
-        $createLink({
-          $mal: 'title',
-          title: name,
-          href: `${MAL_URL}${type}/${id}`,
-          className: KITSU_GRAY_LINK_CLASS,
-          children: $create('span', name),
-        }),
-        pic,
-      ])
-    );
+    return el;
   }
 
   static async kitsuLink() {
