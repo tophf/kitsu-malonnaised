@@ -14,9 +14,10 @@
 // @grant        GM_setValue
 // @grant        GM_addStyle
 // @grant        GM_openInTab
+// @grant        GM_getResourceText
 // @grant        unsafeWindow
 
-// @require      https://greasyfork.org/scripts/27531/code/LZStringUnsafe.js
+// @resource     LZString https://greasyfork.org/scripts/27531/code/LZStringUnsafe.js
 // @run-at       document-start
 
 // @connect      myanimelist.net
@@ -25,7 +26,7 @@
 
 'use strict';
 /* global GM_info GM_xmlhttpRequest GM_addStyle GM_getValue GM_setValue GM_openInTab */
-/* global unsafeWindow exportFunction */
+/* global GM_getResourceText unsafeWindow exportFunction */
 /* global LZStringUnsafe */
 
 const API_URL = 'https://kitsu.io/api/edge/';
@@ -587,6 +588,26 @@ class Cache {
         }
       },
     });
+    const url = URL.createObjectURL(new Blob([
+      GM_getResourceText('LZString'),
+      `;(${() => {
+        self.onmessage = ({data: {id, action, value}}) =>
+          self.postMessage({
+            id,
+            value: LZStringUnsafe[action](value),
+          });
+      }})()`,
+    ]));
+    const q = Cache._workerQueue = [];
+    const w = Cache._worker = new Worker(url);
+    w.onmessage = ({data: {id, value}}) => {
+      const i = q.findIndex(_ => _.payload.id === id);
+      q[i].resolve(value);
+      q.splice(i, 1);
+      if (q.length)
+        w.postMessage(q[0].payload);
+    };
+    URL.revokeObjectURL(url);
   }
 
   static async read(type, slug) {
@@ -598,7 +619,7 @@ class Cache {
       data.expired = true;
     if (data.lz) {
       for (const [k, v] of Object.entries(data.lz))
-        data[k] = Util.parseJson(LZStringUnsafe.decompressFromUTF16(v));
+        data[k] = Util.parseJson(await Cache.invokeWorker('decompressFromUTF16', v));
       data.lz = undefined;
     }
     return data;
@@ -616,7 +637,7 @@ class Cache {
         const str = JSON.stringify(v);
         if (str.length > 100) {
           toWrite.lz = toWrite.lz || {};
-          toWrite.lz[k] = LZStringUnsafe.compressToUTF16(str);
+          toWrite.lz[k] = await Cache.invokeWorker('compressToUTF16', str);
           continue;
         }
       }
@@ -652,6 +673,16 @@ class Cache {
           }
           cursor.continue();
         };
+    });
+  }
+
+  static invokeWorker(action, value) {
+    return new Promise(resolve => {
+      const id = performance.now();
+      const payload = {id, action, value};
+      Cache._workerQueue.push({resolve, payload});
+      if (Cache._workerQueue.length === 1)
+        Cache._worker.postMessage(payload);
     });
   }
 }
