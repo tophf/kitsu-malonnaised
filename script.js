@@ -1382,7 +1382,15 @@ class Render {
   static malName(str) {
     const i = str.indexOf(', ');
     // <wbr> wraps even with "white-space:nowrap" so it's better than unicode zero-width space
-    return i < 0 ? str : [str.slice(i + 2) + ' ', $create('wbr'), str.slice(0, i)];
+    if (i < 0) {
+      return str.replace(/\s+/, '\xA0');
+    } else {
+      return [
+        str.slice(i + 2).replace(/\s+/, '\xA0') + ' ',
+        $create('wbr'),
+        str.slice(0, i).replace(/\s+/, '\xA0'),
+      ];
+    }
   }
 
   static _charsHovered() {
