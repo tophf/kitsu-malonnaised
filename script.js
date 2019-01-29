@@ -168,8 +168,7 @@ class App {
     let data = await Cache.read(type, slug) || {};
     App.data = data;
     if (!data.path) {
-      App.requestMappings(type, slug)
-        .then(App.processMappings);
+      App.findMalEquivalent(type, slug);
       return;
     }
     if (data.expired) {
@@ -181,15 +180,54 @@ class App {
     App.plant(data);
   }
 
-  static requestMappings(type, slug) {
-    return API[type]({
+  static async findMalEquivalent(type, slug) {
+    const kitsuData = await API[type]({
       filter: {slug},
       include: 'mappings',
       fields: {
         mappings: 'externalSite,externalId',
-        anime: 'id,slug',
+        anime: 'id,slug,status,subtype,startDate',
       },
     });
+    if (await App.processMappings(kitsuData))
+      return;
+    const malData = await Util.fetchJson(`${MAL_URL}search/prefix.json?${[
+      'type=' + type,
+      'keyword=' + encodeURIComponent(slug),
+      'v=1',
+    ].join('&')}`);
+    try {
+      const ka = kitsuData.data[0].attributes;
+      const date = Date.parse(ka.startDate + ' GMT');
+      const subType = ka.subtype.toLowerCase();
+      const status = {
+        current: 'Currently Airing',
+        finished: 'Finished Airing',
+        tba: 'Not yet aired',
+        unreleased: 'Not yet aired',
+        upcoming: 'Not yet aired',
+      }[ka.status.toLowerCase()];
+      for (const c of malData.categories) {
+        if (type !== c.type.toLowerCase())
+          continue;
+        for (const {url, payload: p} of c.items) {
+          if (status === p.status &&
+              subType === p.media_type.toLowerCase() &&
+              date === Date.parse(p.aired.split(' to ')[0] + ' GMT')) {
+            const TID = MalTypeId.fromUrl(url);
+            App.plant({
+              TID,
+              expired: true,
+              score: [Number(p.score) || 0],
+              path: type + '/' + slug,
+            });
+            App.plant(await App.processMal({type, slug, url, TID}));
+            return;
+          }
+        }
+      }
+    } catch (e) {}
+    console.warn('No match on MAL for %s/%s', type, slug, malData);
   }
 
   static async processMappings(payload) {
@@ -201,6 +239,7 @@ class App {
     if (!data || data.expired || !data.score)
       data = await App.processMal({type, slug, url});
     App.plant(data);
+    return true;
   }
 
   static async processMal({type, slug, url, TID}) {
@@ -1504,6 +1543,19 @@ class Util {
         onload(r) {
           const doc = new DOMParser().parseFromString(r.response, 'text/html');
           resolve(doc);
+        },
+      });
+    });
+  }
+
+  static fetchJson(url) {
+    return new Promise(resolve => {
+      GM_xmlhttpRequest({
+        url,
+        method: 'GET',
+        responseType: 'json',
+        onload(r) {
+          resolve(r.response);
         },
       });
     });
