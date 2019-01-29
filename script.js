@@ -459,9 +459,6 @@ class App {
         margin: 0 3px 6px;
         position: relative;
       }
-      #CHARS ul:not([hovered]) li[mal~="no-char-pic"] {
-        order: 2;
-      }
       #CHARS ul:not([hovered]) div[mal] {
         width: 100%;
       }
@@ -1202,6 +1199,17 @@ class Render {
     }
     const moreCharsPossible = numCast === MAL_CAST_LIMIT ||
                               numChars - numCast === MAL_STAFF_LIMIT;
+    // prefer chars with pics, except for main chars who stay in place
+    chars = chars
+      .map((c, i) => [c, i])
+      .sort((
+          [[typeA, [, , imgA]], i],
+          [[typeB, [, , imgB]], j]) =>
+        (typeB === 'Main') - (typeA === 'Main') ||
+        !!imgB - !!imgA ||
+        i - j)
+      .map(([c]) => c);
+
     $create('section', {
       $mal: type,
       id: ID.CHARS,
@@ -1233,23 +1241,17 @@ class Render {
   }
 
   static char([type, [char, charId, charImg], [va, vaId, vaImg] = []]) {
-    const el =
-      $create('li', !charImg && {
-        $mal: 'no-char-pic' + (char ? '' : ' staff'),
-      });
-    let pic;
-    if (char) {
-      $create('div', {
-        $mal: 'char',
-        parent: el,
-      }, [
+    let pic1, pic2;
+    const el = $create('li', [
+      char &&
+      $create('div', {$mal: 'char'}, [
         $createLink({
           $mal: 'char',
           href: `${MAL_URL}character/${charId}`,
         }, [
           charImg &&
           $create('div',
-            pic =
+            pic1 =
             $create('img', {
               [$LAZY_ATTR]: `${MAL_CDN_URL}images/characters/${charImg}${MAL_IMG_EXT}`,
             })),
@@ -1257,22 +1259,17 @@ class Render {
         ]),
         type !== 'Supporting' &&
         $create('small', type),
-      ]);
-      if (pic)
-        Render.scrollObserver.observe(pic);
-    }
-    if (va) {
-      $create('div', {
-        $mal: 'people',
-        parent: el,
-      }, [
+      ]),
+
+      va &&
+      $create('div', {$mal: 'people'}, [
         $createLink({
           $mal: 'people',
           href: `${MAL_URL}people/${vaId}`,
         }, [
           vaImg &&
           $create('div',
-            pic =
+            pic2 =
             $create('img', {
               [$LAZY_ATTR]: `${MAL_CDN_URL}images/voiceactors/${vaImg}.jpg`,
             })),
@@ -1280,10 +1277,12 @@ class Render {
         ]),
         !char &&
         $create('small', type),
-      ]);
-      if (pic)
-        Render.scrollObserver.observe(pic);
-    }
+      ]),
+    ]);
+    if (pic1)
+      Render.scrollObserver.observe(pic1);
+    if (pic2)
+      Render.scrollObserver.observe(pic2);
     return el;
   }
 
