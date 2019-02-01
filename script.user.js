@@ -186,7 +186,7 @@ class App {
       include: 'mappings',
       fields: {
         mappings: 'externalSite,externalId',
-        anime: 'id,slug,status,subtype,startDate',
+        [type]: 'id,slug,status,subtype,startDate',
       },
     });
     if (await App.processMappings(kitsuData))
