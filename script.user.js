@@ -69,10 +69,14 @@ const ID = (name => Object.defineProperties({
   },
 }))(GM_info.script.name.replace(/\W/g, ''));
 
-const EXT_LINK =
-  $create('SVG:svg', {viewBox: '0 0 22 22'},
-    $create('SVG:path', {d: 'M13,0v2h5.6L6.3,14.3l1.4,1.4L20,3.4V9h2V0H13z ' +
-                            'M0,4v18h18V9l-2,2v9H2V6h9l2-2H0z'}));
+const EXT_LINK = {
+  tag: 'SVG:svg',
+  viewBox: '0 0 22 22',
+  children: {
+    tag: 'SVG:path',
+    d: 'M13,0v2h5.6L6.3,14.3l1.4,1.4L20,3.4V9h2V0H13z M0,4v18h18V9l-2,2v9H2V6h9l2-2H0z',
+  },
+};
 
 const agent = (() => {
   const data = new Proxy({}, {
@@ -148,7 +152,8 @@ class App {
     App.initStyles();
 
     // detect WebP support
-    $create('img', {
+    $create({
+      tag: 'img',
       src: 'data:image/webp;base64,UklGRh4AAABXRUJQVlA4TBEAAAAvAAAAAAfQ//73v/+BiOh/AAA=',
       onload() {
         MAL_IMG_EXT = '.webp';
@@ -289,10 +294,13 @@ class App {
     Mutant.gotTheme().then(() => {
       const bgColor = getComputedStyle(document.body).backgroundColor;
       document.head.append(
-        $create('style', `
-          #${ID.RECS} {
-            --${ID.me}-bg-color: ${bgColor};
-          }`));
+        $create({
+          tag: 'style',
+          textContent: `
+            #${ID.RECS} {
+              --${ID.me}-bg-color: ${bgColor};
+            }`,
+        }));
     });
 
     const MAIN_TRANSITION = 'opacity .25s';
@@ -1053,25 +1061,23 @@ class Mutant {
     }
   }
 
-  static async gotAttribute(node, ...attributes) {
-    return attributes.some(a => node.hasAttribute(a)) ?
-      node :
-      new Promise(resolve => {
-        let timeout;
-        const ob = new MutationObserver(() => {
+  static gotMoved(node, timeout = 10e3) {
+    return new Promise(resolve => {
+      const parent = node.parentNode;
+      let timer;
+      const ob = new MutationObserver(() => {
+        if (node.parentNode !== parent) {
           ob.disconnect();
-          clearTimeout(timeout);
-          resolve(node);
-        });
-        ob.observe(node, {
-          attributes: true,
-          attributeFilter: attributes,
-        });
-        timeout = setTimeout(() => {
-          ob.disconnect();
-          resolve(false);
-        }, 5000);
+          clearTimeout(timer);
+          resolve(true);
+        }
       });
+      ob.observe(parent, {childList: true});
+      timer = setTimeout(() => {
+        ob.disconnect();
+        resolve(false);
+      }, timeout);
+    });
   }
 
   static async waitFor(selector, base, {skipCurrent} = {}) {
@@ -1115,56 +1121,23 @@ class Render {
 
   static all(data) {
     if (!Render.scrollObserver)
-      Render.init();
-
+      Render.scrollObserver = new IntersectionObserver(Render._lazyLoad, {
+        rootMargin: LAZY_MARGIN + 'px',
+      });
     Render.stats(data);
     Render.characters(data);
     Render.recommendations(data);
+    Render.observe();
   }
 
-  static init() {
-    Render.scrollObserver = new IntersectionObserver(Render._lazyLoad, {
-      rootMargin: LAZY_MARGIN + 'px',
-    });
-    {
-      let recLink, nameLink, name, pic;
-      Render._recNode =
-        $create('li', {$mal: ''}, [
-          $create('small',
-            recLink =
-            $createLink({
-              $mal: 'rec',
-              href: '#',
-              textContent: ' ',
-              className: KITSU_GRAY_LINK_CLASS,
-            })),
-          nameLink =
-          $createLink({
-            $mal: 'title',
-            href: '#',
-            title: ' ',
-            className: KITSU_GRAY_LINK_CLASS,
-          },
-            name =
-            $create('span', ' ')),
-          pic =
-          $create('div', {[$LAZY_ATTR]: ''}),
-        ]);
-      Render._recParts = {
-        type: Render._recNode.attributes.mal,
-        recHref: recLink.attributes.href,
-        recText: recLink.firstChild,
-        nameHref: nameLink.attributes.href,
-        nameTitle: nameLink.attributes.title,
-        nameText: name.firstChild,
-        src: pic.attributes[LAZY_ATTR],
-      };
-    }
+  static observe(container) {
+    for (const el of $$(`[${LAZY_ATTR}]`, container))
+      Render.scrollObserver.observe(el);
   }
 
   static stats({score: [r, count] = ['N/A'], users, favs, url} = {}) {
     const quarter = r > 0 && Math.max(1, Math.min(4, 1 + (r - .001) / 2.5 >> 0));
-    $createLink({
+    $create(Util.externalLink({
       $mal: '',
       id: ID.SCORE,
       parent: $('.media-rating'),
@@ -1173,14 +1146,16 @@ class Render {
       textContent: (r > 0 ? Util.num2pct(r / 10) : r) + ' on MAL',
       className: 'media-community-rating' + (quarter ? ' percent-quarter-' + quarter : ''),
       $style: '',
-    });
-    $create('span', {
+    }));
+    $create({
+      tag: 'span',
       id: ID.USERS,
       after: $id(ID.SCORE),
       textContent: Util.num2str(users),
       $style: users ? '' : 'opacity:0; display:none',
     });
-    $create('span', {
+    $create({
+      tag: 'span',
       id: ID.FAVS,
       after: $id(ID.USERS),
       textContent: Util.num2str(favs),
@@ -1210,122 +1185,147 @@ class Render {
         i - j)
       .map(([c]) => c);
 
-    $create('section', {
+    $create({
+      tag: 'section',
       $mal: type,
       id: ID.CHARS,
       after: $('.media--information'),
       className: 'media--related',
       $style: numChars ? '' : 'opacity:0; display:none',
-    }, numChars && [
-      $create('h5', [
-        'Characters ',
-        $createLink({
-          $mal: 'chars-all',
-          href: `${url}/${slug}/characters`,
-          textContent: 'on MAL',
-        }),
-      ]),
-      $create('ul', {
+      children: numChars && [{
+        tag: 'h5',
+        children: [
+          'Characters ',
+          Util.externalLink({
+            href:`${url}/${slug}/characters`,
+            textContent: 'on MAL',
+            $mal: 'chars-all',
+          }),
+        ],
+      }, {
+        tag: 'ul',
         $mal: numCastPics <= 6 ? 'one-row' : '',
         onmouseover: Render._charsHovered,
         onmouseout: Render._charsHovered,
         children: chars.map(Render.char),
-      }),
-      moreCharsPossible &&
-      $create('a', {
+      }, moreCharsPossible && {
+        tag: 'a',
         href: `/${App.data.path}/characters`,
         className: 'more-link',
         textContent: 'View all characters',
-      }),
-    ]);
+      }],
+    });
   }
 
   static char([type, [char, charId, charImg], [va, vaId, vaImg] = []]) {
-    let pic1, pic2;
-    const el = $create('li', [
-      char &&
-      $create('div', {$mal: 'char'}, [
-        $createLink({
+    return {
+      tag: 'li',
+      children: [
+        char && {
+          tag: 'div',
           $mal: 'char',
-          href: `${MAL_URL}character/${charId}`,
-        }, [
-          charImg &&
-          $create('div',
-            pic1 =
-            $create('img', {
-              [$LAZY_ATTR]: `${MAL_CDN_URL}images/characters/${charImg}${MAL_IMG_EXT}`,
-            })),
-          $create('span', Render.malName(char)),
-        ]),
-        type !== 'Supporting' &&
-        $create('small', type),
-      ]),
+          children: [
+            Util.externalLink({
+              $mal: 'char',
+              href: `${MAL_URL}character/${charId}`,
+              children: [
+                charImg && {
+                  tag: 'div',
+                  children: [{
+                    tag: 'img',
+                    [$LAZY_ATTR]: `${MAL_CDN_URL}images/characters/${charImg}${MAL_IMG_EXT}`,
+                  }],
+                }, {
+                  tag: 'span',
+                  children: Render.malName(char),
+                },
+              ],
+            }),
+            type !== 'Supporting' && {
+              tag: 'small',
+              textContent: type,
+            },
+          ],
+        },
 
-      va &&
-      $create('div', {$mal: 'people'}, [
-        $createLink({
+        va && {
+          tag: 'div',
           $mal: 'people',
-          href: `${MAL_URL}people/${vaId}`,
-        }, [
-          vaImg &&
-          $create('div',
-            pic2 =
-            $create('img', {
-              [$LAZY_ATTR]: `${MAL_CDN_URL}images/voiceactors/${vaImg}.jpg`,
-            })),
-          $create('span', Render.malName(va)),
-        ]),
-        !char &&
-        $create('small', type),
-      ]),
-    ]);
-    if (pic1)
-      Render.scrollObserver.observe(pic1);
-    if (pic2)
-      Render.scrollObserver.observe(pic2);
-    return el;
+          children: [
+            Util.externalLink({
+              $mal: 'people',
+              href: `${MAL_URL}people/${vaId}`,
+              children: [
+                vaImg && {
+                  tag: 'div',
+                  children: [{
+                    tag: 'img',
+                    [$LAZY_ATTR]: `${MAL_CDN_URL}images/voiceactors/${vaImg}.jpg`,
+                  }],
+                }, {
+                  tag: 'span',
+                  children: Render.malName(va),
+                },
+              ],
+            }),
+            !char && {
+              tag: 'small',
+              textContent: type,
+            },
+          ],
+        },
+      ],
+    };
   }
 
   static recommendations({recs, url, slug}) {
-    $create('section', {
+    $create({
+      tag: 'section',
       id: ID.RECS,
       before: $('.media--reactions'),
       $style: recs ? '' : 'opacity:0; display:none',
-    }, recs && [
-      $create('h5', [
-        'Recommendations ',
-        $createLink({
-          $mal: 'recs-all',
-          href: `${url}/${slug}/userrecs`,
-          className: KITSU_GRAY_LINK_CLASS,
-          textContent: 'on MAL',
-        }),
-      ]),
-      $create('ul', {
+      children: recs && [{
+        tag: 'h5',
+        children: [
+          'Recommendations ',
+          Util.externalLink({
+            $mal: 'recs-all',
+            href: `${url}/${slug}/userrecs`,
+            className: KITSU_GRAY_LINK_CLASS,
+            textContent: 'on MAL',
+          }),
+        ],
+      }, {
+        tag: 'ul',
         onmouseover: Render.recommendationsHidden,
-      }, recs.slice(0, KITSU_RECS_PER_ROW).map(Render.rec, arguments[0])),
-    ]);
+        children: recs.slice(0, KITSU_RECS_PER_ROW).map(Render.rec, arguments[0]),
+      }],
+    });
   }
 
   static recommendationsHidden() {
     this.onmouseover = null;
-    const ul = $('ul', $id(ID.RECS));
-    ul.append(
-      ...App.data.recs.slice(KITSU_RECS_PER_ROW)
+    const added = $create({tag: 'div'},
+      App.data.recs
+        .slice(KITSU_RECS_PER_ROW)
         .map(Render.rec, App.data));
+    Render.observe(added);
     if (App.data.recs.length === MAL_RECS_LIMIT) {
-      $create('li', {
-        className: 'media-summary',
-        parent: ul,
+      $create({
+        tag: 'li',
         $mal: 'more',
-      },
-        $create('a', {
+        parent: added,
+        className: 'media-summary',
+        children: {
+          tag: 'a',
           href: '#',
           onclick: Render.recommendationsMore,
           className: 'more-link',
           textContent: 'Load more recommendations',
-        }));
+        },
+      });
     }
+    $(`#${ID.RECS} ul`).append(...added.children);
   }
 
   static async recommendationsMore(e) {
@@ -1338,8 +1338,9 @@ class Render {
     const block = $id(ID.RECS);
     block.style.cursor = 'progress';
     const newRecs = await Mal.scavengeRecs($('a', block).href);
-    const newElements = newRecs.map(Render.rec, App.data);
-    $('ul', block).append(...newElements);
+    const added = $create({tag: 'div'}, newRecs.map(Render.rec, App.data));
+    Render.observe(added);
+    $('ul', block).append(...added.children);
     block.style.cursor = '';
     setTimeout(() =>
       this.parentNode.remove());
@@ -1347,27 +1348,38 @@ class Render {
 
   static rec([name, id, img, count]) {
     const {type, TID} = this;
-    const p = Render._recParts;
-    p.type.nodeValue = count ? '' : 'auto-rec';
-    if (count) {
-      p.recHref.nodeValue = `${MAL_URL}recommendations/${type}/${id}-${TID.slice(1)}`;
-      p.recText.nodeValue = `${count} rec${count > 1 ? 's' : ''}`;
-    }
-    p.nameHref.nodeValue = `${MAL_URL}${type}/${id}`;
-    p.nameTitle.nodeValue = name;
-    p.nameText.nodeValue = name;
-    p.src.nodeValue = `${MAL_CDN_URL}images/${type}/${img}${MAL_IMG_EXT}`;
-
-    const el = Render._recNode.cloneNode(true);
-    el.onmouseover = Render.kitsuLink;
-    if (!count) {
-      const recLink = el.getElementsByTagName('a')[0];
-      recLink.parentNode.replaceChild(document.createTextNode('auto-rec'), recLink);
-    }
-    const pic = el.getElementsByTagName('div')[0];
-    pic.onclick = pic.onauxclick = Render._kitsuLinkPreclicked;
-    Render.scrollObserver.observe(pic);
-    return el;
+    return {
+      tag: 'li',
+      $mal: count ? '' : 'auto-rec',
+      onmouseover: Render.kitsuLink,
+      children: [{
+        tag: 'small',
+        children: [
+          !count ?
+            'auto-rec' :
+            Util.externalLink({
+              $mal: 'rec',
+              href: `${MAL_URL}recommendations/${type}/${id}-${TID.slice(1)}`,
+              className: KITSU_GRAY_LINK_CLASS,
+              textContent: `${count} rec${count > 1 ? 's' : ''}`,
+            }),
+        ],
+      }, Util.externalLink({
+        $mal: 'title',
+        title: name,
+        href: `${MAL_URL}${type}/${id}`,
+        className: KITSU_GRAY_LINK_CLASS,
+        children: [{
+          tag: 'span',
+          textContent: name,
+        }],
+      }), {
+        tag: 'div',
+        [$LAZY_ATTR]: `${MAL_CDN_URL}images/${type}/${img}${MAL_IMG_EXT}`,
+        onclick: Render._kitsuLinkPreclicked,
+        onauxclick: Render._kitsuLinkPreclicked,
+      }],
+    };
   }
 
   static async kitsuLink() {
@@ -1403,7 +1415,8 @@ class Render {
     }
 
     if (slug) {
-      $create('a', {
+      $create({
+        tag: 'a',
         href: `/${type}/${slug}`,
         className: KITSU_GRAY_LINK_CLASS,
         children: image,
@@ -1425,7 +1438,7 @@ class Render {
     } else {
       return [
         str.slice(i + 2).replace(/\s+/, '\xA0') + ' ',
-        $create('wbr'),
+        {tag: 'wbr'},
         str.slice(0, i).replace(/\s+/, '\xA0'),
       ];
     }
@@ -1454,11 +1467,11 @@ class Render {
       return;
 
     const winner = await Promise.race([
-      Mutant.gotAttribute(this.parentNode, 'href'),
+      Mutant.gotMoved(this),
       Mutant.gotPath(),
     ]);
     // console.warn('preclicked', [winner]);
-    if (winner instanceof HTMLMetaElement)
+    if (winner !== true)
       return;
 
     const {button: btn, ctrlKey: c, shiftKey: s} = e;
@@ -1559,6 +1572,17 @@ class Util {
       });
     });
   }
+
+  static externalLink(props,
+                      children = props.children || props.textContent || []) {
+    props.tag = 'a';
+    props.target = '_blank';
+    props.rel = 'noopener noreferrer';
+    props.children = Array.isArray(children) ? children : [children];
+    props.children.push(EXT_LINK);
+    delete props.textContent;
+    return props;
+  }
 }
 
 
@@ -1586,61 +1610,100 @@ function $text(selector, node = document) {
 }
 
 /** @return {HTMLElement} */
-function $create(tag, props = {}, children) {
-
-  if (!children && (
-    props instanceof Node ||
-    typeof props !== 'object' ||
-    Array.isArray(props)
-  )) {
-    children = props;
-    props = {};
-  }
-
-  let ns;
-  const i = tag.indexOf(':');
-  if (i >= 0) {
-    ns = tag.slice(0, i);
-    tag = tag.slice(i + 1);
-  }
-
-  const el = props.id && $id(props.id) || (
-    /^SVG$/i.test(ns) ?
-      document.createElementNS('http://www.w3.org/2000/svg', tag) :
-      document.createElement(tag));
-
+function $create(props,
+                 children = props.children || [],
+                 referenceNode = props.id && $id(props.id)) {
+  let el;
+  let childIndex = -1;
   const hasOwnProperty = Object.hasOwnProperty;
-  for (const k in props) {
-    if (!hasOwnProperty.call(props, k))
+  const toAppend = [];
+
+  if (!Array.isArray(children))
+    children = [children];
+
+  for (let index = 0, node, info = props, ref = referenceNode;
+       index <= children.length;
+       info = children[index], ref = el.childNodes[childIndex], index++) {
+
+    if (!info)
       continue;
-    const v = props[k];
-    switch (k) {
-      case 'children':
-      case 'parent':
-      case 'after':
-      case 'before':
+
+    childIndex++;
+
+    let ns;
+    const isNode = info instanceof Node;
+
+    if (isNode) {
+      node = info;
+    } else {
+      let {tag} = info;
+      const i = tag ? tag.indexOf(':') : -1;
+      if (i >= 0) {
+        ns = tag.slice(0, i);
+        tag = tag.slice(i + 1);
+      }
+      node = ref && ref.localName === (tag && tag.toLowerCase()) && ref || (
+        !tag ?
+          document.createTextNode(info) :
+          /^SVG$/i.test(ns) ?
+            document.createElementNS('http://www.w3.org/2000/svg', tag) :
+            document.createElement(tag));
+    }
+
+    const type = node.nodeType;
+
+    if (index === 0)
+      el = node;
+    else if (!ref)
+      toAppend.push(node);
+    else if (isNode || ref.localName !== node.localName)
+      ref.parentNode.replaceChild(node, ref);
+
+    if (isNode)
+      continue;
+
+    if (type === Node.TEXT_NODE) {
+      if (ref && ref.nodeValue !== info)
+        ref.nodeValue = info;
+      continue;
+    }
+
+    if (index > 0 && info.children) {
+      $create(info, undefined, node);
+      continue;
+    }
+
+    for (const k in info) {
+      if (!hasOwnProperty.call(info, k))
         continue;
-      default: {
-        const slice = k.startsWith('$') ? 1 : 0;
-        if (slice || ns) {
-          if (el.getAttribute(k.slice(slice)) !== v)
-            el.setAttribute(k.slice(slice), v);
-        } else if (el[k] !== v) {
-          el[k] = v;
+      switch (k) {
+        case 'tag':
+        case 'children':
+        case 'parent':
+        case 'after':
+        case 'before':
+          continue;
+        default: {
+          const v = info[k];
+          const attr = k.startsWith('$') ? k.slice(1) : null;
+          if (attr || ns) {
+            if (!ref || node.getAttribute(attr || k) !== v)
+              node.setAttribute(attr || k, v);
+          } else if (!ref || node[k] !== v) {
+            node[k] = v;
+          }
         }
       }
     }
   }
 
-  if (!children)
-    children = props.children;
-  if (children) {
-    if (el.firstChild)
-      el.textContent = '';
-    if (typeof children !== 'string' && Symbol.iterator in children)
-      el.append(...[...children].filter(Boolean));
-    else
-      el.append(children);
+  if (toAppend.length)
+    el.append(...toAppend);
+  else {
+    const numExpected = childIndex + (props.textContent ? 1 : 0);
+    const numZombies = el.childNodes.length - numExpected;
+    for (let i = 0; i < numZombies; i++)
+      el.lastChild.remove();
   }
 
   if (props.parent && props.parent !== el.parentNode)
@@ -1651,15 +1714,6 @@ function $create(tag, props = {}, children) {
     props.after.insertAdjacentElement('afterEnd', el);
 
   return el;
-}
-
-function $createLink(props, children) {
-  const a = $create('a', props, children);
-  a.rel = 'noopener noreferrer';
-  a.target = '_blank';
-  if (!(a.lastElementChild instanceof SVGElement))
-    a.appendChild(EXT_LINK.cloneNode(true));
-  return a;
 }
 
 function $remove(selectorOrNode, base) {
