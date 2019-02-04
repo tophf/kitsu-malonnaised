@@ -1145,21 +1145,21 @@ class Render {
       title: count && `Scored by ${Util.num2str(count)} users` || '',
       textContent: (r > 0 ? Util.num2pct(r / 10) : r) + ' on MAL',
       className: 'media-community-rating' + (quarter ? ' percent-quarter-' + quarter : ''),
-      $style: '',
+      $style: null,
     }));
     $create({
       tag: 'span',
       id: ID.USERS,
       after: $id(ID.SCORE),
       textContent: Util.num2str(users),
-      $style: users ? '' : 'opacity:0; display:none',
+      $style: users ? null : 'opacity:0; display:none',
     });
     $create({
       tag: 'span',
       id: ID.FAVS,
       after: $id(ID.USERS),
       textContent: Util.num2str(favs),
-      $style: favs ? '' : 'opacity:0; display:none',
+      $style: favs ? null : 'opacity:0; display:none',
     });
   }
 
@@ -1191,7 +1191,7 @@ class Render {
       id: ID.CHARS,
       after: $('.media--information'),
       className: 'media--related',
-      $style: numChars ? '' : 'opacity:0; display:none',
+      $style: numChars ? null : 'opacity:0; display:none',
       children: numChars && [{
         tag: 'h5',
         children: [
@@ -1283,7 +1283,7 @@ class Render {
       tag: 'section',
       id: ID.RECS,
       before: $('.media--reactions'),
-      $style: recs ? '' : 'opacity:0; display:none',
+      $style: recs ? null : 'opacity:0; display:none',
       children: recs && [{
         tag: 'h5',
         children: [
@@ -1453,11 +1453,7 @@ class Render {
   }
 
   static _charsHoveredTimer(el) {
-    if (el.matches(':hover')) {
-      el.setAttribute('hovered', '');
-    } else {
-      el.removeAttribute('hovered');
-    }
+    $attributize(el, 'hovered', el.matches(':hover') ? '' : null);
   }
 
   static async _kitsuLinkPreclicked(e) {
@@ -1674,26 +1670,19 @@ function $create(props,
     }
 
     for (const k in info) {
-      if (!hasOwnProperty.call(info, k))
+      if (!hasOwnProperty.call(info, k) ||
+          k === 'tag' ||
+          k === 'children' ||
+          k === 'parent' ||
+          k === 'after' ||
+          k === 'before')
         continue;
-      switch (k) {
-        case 'tag':
-        case 'children':
-        case 'parent':
-        case 'after':
-        case 'before':
-          continue;
-        default: {
-          const v = info[k];
-          const attr = k.startsWith('$') ? k.slice(1) : null;
-          if (attr || ns) {
-            if (!ref || node.getAttribute(attr || k) !== v)
-              node.setAttribute(attr || k, v);
-          } else if (!ref || node[k] !== v) {
-            node[k] = v;
-          }
-        }
-      }
+      const v = info[k];
+      const attr = k.startsWith('$') ? k.slice(1) : null;
+      if (attr || ns)
+        $attributize(node, attr || k, v);
+      else if (node[k] !== v)
+        node[k] = v;
     }
   }
 
@@ -1727,6 +1716,13 @@ function $remove(selectorOrNode, base) {
     $(selectorOrNode, base);
   if (el)
     el.remove();
+}
+
+function $attributize(node, attr, value) {
+  if (value === null)
+    node.removeAttribute(attr);
+  else if (value !== node.getAttribute(attr))
+    node.setAttribute(attr, value);
 }
 
 App.init();
