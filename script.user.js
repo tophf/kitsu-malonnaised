@@ -1706,11 +1706,16 @@ function $create(props,
       el.lastChild.remove();
   }
 
-  if (props.parent && props.parent !== el.parentNode)
+  if (props.parent &&
+      props.parent !== el.parentNode)
     props.parent.appendChild(el);
-  if (props.before && props.before !== el.nextSibling)
+
+  if (props.before &&
+      props.before !== el.nextSibling)
     props.before.insertAdjacentElement('beforeBegin', el);
-  if (props.after && props.after !== el.previousSibling)
+
+  if (props.after &&
+      props.after !== el.previousSibling)
     props.after.insertAdjacentElement('afterEnd', el);
 
   return el;
