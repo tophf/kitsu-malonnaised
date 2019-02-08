@@ -1358,6 +1358,10 @@ class Render {
     return {
       tag: 'li',
       $mal: count ? '' : 'auto-rec',
+      onclick: Render._kitsuLinkPreclicked,
+      onauxclick: Render._kitsuLinkPreclicked,
+      onmousedown: Render._kitsuLinkPreclicked,
+      onmouseup: Render._kitsuLinkPreclicked,
       onmouseover: Render.kitsuLink,
       children: [{
         tag: 'small',
@@ -1383,8 +1387,6 @@ class Render {
       }), {
         tag: 'div',
         [$LAZY_ATTR]: `${MAL_CDN_URL}images/${type}/${img}${MAL_IMG_EXT}`,
-        onclick: Render._kitsuLinkPreclicked,
-        onauxclick: Render._kitsuLinkPreclicked,
       }],
     };
   }
@@ -1433,8 +1435,16 @@ class Render {
       malLink.appendChild(image);
     }
 
-    image.onclick = null;
-    image.onauxclick = null;
+    // console.log('moved', image);
+    if (!this.onmousedown && this.onmouseup) {
+      // console.log('waiting for mouseup');
+      await new Promise(resolve => addEventListener('mouseup', resolve, {once: true}));
+      await Util.nextTick();
+    }
+    this.onclick = null;
+    this.onauxclick = null;
+    this.onmousedown = null;
+    this.onmouseup = null;
   }
 
   static malName(str) {
@@ -1467,21 +1477,37 @@ class Render {
   }
 
   static async _kitsuLinkPreclicked(e) {
+    // console.log(e.type, e.target);
+    if (!e.target.style.backgroundImage)
+      return;
+    if (e.type === 'mousedown') {
+      this.onmousedown = null;
+      return;
+    }
+    if (e.type === 'mouseup') {
+      this.onmouseup = null;
+      await Util.nextTick();
+      if (!this.onclick)
+        return;
+    }
     this.onclick = null;
     this.onauxclick = null;
     if (e.altKey || e.metaKey || e.button > 1)
       return;
 
-    const winner = await Promise.race([
-      Mutant.gotMoved(this),
-      Mutant.gotPath(),
-    ]);
-    // console.warn('preclicked', [winner]);
-    if (winner !== true)
-      return;
+    let link = e.target.closest('a');
+    if (!link) {
+      const winner = await Promise.race([
+        Mutant.gotMoved(e.target),
+        Mutant.gotPath(),
+      ]);
+      // console.warn('preclicked', [winner]);
+      if (winner !== true)
+        return;
+    }
 
     const {button: btn, ctrlKey: c, shiftKey: s} = e;
-    const link = this.parentNode;
+    link = e.target.closest('a');
     if (!btn && !c) {
       link.dispatchEvent(new MouseEvent('click', e));
       if (!s)
