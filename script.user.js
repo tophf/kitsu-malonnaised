@@ -1493,12 +1493,15 @@ class Render {
     for (const e of entries) {
       if (e.isIntersecting) {
         const el = e.target;
-        const url = el.getAttribute(LAZY_ATTR);
+        let url = el.getAttribute(LAZY_ATTR);
 
         if (el instanceof HTMLImageElement) {
-          el.src = url;
+          if (el.src !== url)
+            el.src = url;
         } else {
-          el.style.backgroundImage = `url(${url})`;
+          url = `url(${url})`;
+          if (el.style.backgroundImage !== url)
+            el.style.backgroundImage = url;
         }
 
         el.removeAttribute(LAZY_ATTR);
