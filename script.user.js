@@ -442,7 +442,7 @@ class App {
         max-width: none;
         margin: -1px;
       }
-      #CHARS img[malsrc] {
+      #CHARS img[${LAZY_ATTR}]:not([src]) {
         padding: 0 100% ${Util.num2pct(350 / 225)} 0;
       }
       #CHARS div[mal]:not(:only-child) a > :first-child:not(div) {
