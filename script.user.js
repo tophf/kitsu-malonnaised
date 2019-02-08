@@ -481,6 +481,7 @@ class App {
       }
       #CHARS ul:not([hovered]) span {
         max-width: 100%;
+        vertical-align: top;
       }
       /*******************************************************/
       #RECS {
