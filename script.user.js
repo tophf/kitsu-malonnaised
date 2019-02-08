@@ -1435,7 +1435,10 @@ class Render {
     const i = str.indexOf(', ');
     // <wbr> wraps even with "white-space:nowrap" so it's better than unicode zero-width space
     if (i < 0) {
-      return str.replace(/\s+/, '\xA0');
+      const words = str.split(/\s+/);
+      return words.length <= 2
+        ? words.join(' ')
+        : words[0] + ' ' + words.slice(1).join('\xA0');
     } else {
       return [
         str.slice(i + 2).replace(/\s+/, '\xA0') + ' ',
