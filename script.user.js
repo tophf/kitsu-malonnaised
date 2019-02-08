@@ -249,7 +249,7 @@ class App {
 
   static async processMal({type, slug, url, TID}) {
     // console.warn('processMal');
-    App.busy = true;
+    App.shouldFadeOut = true;
     App.hide();
     const data = await Mal.scavenge(url || MalTypeId.toUrl(TID));
     data.TID = TID || MalTypeId.urlToTID(url);
@@ -278,13 +278,13 @@ class App {
     Render.all(data);
 
     App.renderedPath = data.expired ? '' : data.path;
-    App.busy = false;
+    App.shouldFadeOut = !data.score;
   }
 
   static async hide() {
     App.renderedPath = '';
     await Util.nextTick();
-    if (!App.busy)
+    if (!App.shouldFadeOut)
       return;
     for (const el of $$(ID.selectAll()))
       el.style.opacity = 0;
