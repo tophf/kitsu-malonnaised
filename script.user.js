@@ -275,6 +275,12 @@ class App {
 
     await Mutant.gotPath(data);
 
+    if (App.renderedPath !== data.path) {
+      const el = $id(ID.CHARS);
+      if (el && el.style.opacity === '0')
+        $$('img', el).forEach(img => img.removeAttribute('src'));
+    }
+
     Render.all(data);
 
     App.renderedPath = data.expired ? '' : data.path;
