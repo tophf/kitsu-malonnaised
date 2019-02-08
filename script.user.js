@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Kitsu MALonnaised
 // @description  Shows MyAnimeList.net data on Kitsu.io
-// @version      1.0.1
+// @version      1.0.2
 
 // @author       tophf
 // @namespace    https://github.com/tophf
