@@ -275,12 +275,6 @@ class App {
 
     await Mutant.gotPath(data);
 
-    if (App.renderedPath !== data.path) {
-      const el = $id(ID.CHARS);
-      if (el && el.style.opacity === '0')
-        $$('img', el).forEach(img => img.removeAttribute('src'));
-    }
-
     Render.all(data);
 
     App.renderedPath = data.expired ? '' : data.path;
@@ -1170,8 +1164,20 @@ class Render {
     });
   }
 
-  static characters({chars = [], url, type, slug}) {
+  static characters({chars = [], url, type, slug, path}) {
     $remove('.media--main-characters');
+    if (App.renderedPath !== path) {
+      // hide the previous pics of chars and voice actors
+      // to prevent them from flashing briefly during fade-in/hover
+      const el = $id(ID.CHARS);
+      if (el) {
+        const hidden = el.style.opacity === '0';
+        for (const img of el.getElementsByTagName('img')) {
+          if (hidden || img.src.includes('voiceactors'))
+            img.removeAttribute('src');
+        }
+      }
+    }
     const numChars = chars.length;
     let numCastPics = 0;
     let numCast = 0;
