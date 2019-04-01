@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Kitsu MALonnaised
 // @description  Shows MyAnimeList.net data on Kitsu.io
-// @version      1.0.2
+// @version      1.0.3
 
 // @author       tophf
 // @namespace    https://github.com/tophf
@@ -37,6 +37,8 @@ let MAL_IMG_EXT = '.jpg';
 const MAL_RECS_LIMIT = 24;
 const MAL_CAST_LIMIT = 10;
 const MAL_STAFF_LIMIT = 4;
+const MAL_CSS_CHAR_IMG = 'a[href*="/character/"] img[data-src*="/characters/"]';
+const MAL_CSS_VA_IMG = 'a[href*="/people/"] img[data-src*="/voiceactors/"]';
 const KITSU_RECS_PER_ROW = 4;
 const KITSU_GRAY_LINK_CLASS = 'import-title';
 // IntersectionObserver margin
@@ -898,7 +900,7 @@ class Mal {
   static extractChars(doc) {
     const processed = new Set();
     const chars = [];
-    for (const img of $$('a[href*="/character/"] img, a[href*="/people/"] img', doc)) {
+    for (const img of $$(`${MAL_CSS_CHAR_IMG}, ${MAL_CSS_VA_IMG}`, doc)) {
       const parent = img.closest('table');
       if (processed.has(parent))
         continue;
@@ -906,10 +908,10 @@ class Mal {
       // and the character's img comes first so we can add the nested actor's table
       // thus skipping it on subsequent matches for 'a[href*="/people/"] img'
       processed.add($('table', parent));
-      const char = $('a[href*="/character/"] img', parent);
+      const char = $(MAL_CSS_CHAR_IMG, parent);
       let actor;
       if (char) {
-        for (const el of $$('a[href*="/people/"] img', parent)) {
+        for (const el of $$(MAL_CSS_VA_IMG, parent)) {
           const lang = $text('small', el.closest('tr'));
           if (!lang || lang === 'Japanese') {
             actor = el;
