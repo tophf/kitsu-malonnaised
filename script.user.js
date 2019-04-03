@@ -294,6 +294,8 @@ class App {
 
   static initStyles() {
     Mutant.gotTheme().then(() => {
+      if (!document.body)
+        return;
       const bgColor = getComputedStyle(document.body).backgroundColor;
       document.head.append(
         $create({
