@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Kitsu MALonnaised
 // @description  Shows MyAnimeList.net data on Kitsu.io
-// @version      1.0.3
+// @version      1.0.4
 
 // @author       tophf
 // @namespace    https://github.com/tophf
@@ -37,8 +37,8 @@ let MAL_IMG_EXT = '.jpg';
 const MAL_RECS_LIMIT = 24;
 const MAL_CAST_LIMIT = 10;
 const MAL_STAFF_LIMIT = 4;
-const MAL_CSS_CHAR_IMG = 'a[href*="/character/"] img[data-src*="/characters/"]';
-const MAL_CSS_VA_IMG = 'a[href*="/people/"] img[data-src*="/voiceactors/"]';
+const MAL_CSS_CHAR_IMG = 'a[href*="/character/"] img[data-src]';
+const MAL_CSS_VA_IMG = 'a[href*="/people/"] img[data-src]';
 const KITSU_RECS_PER_ROW = 4;
 const KITSU_GRAY_LINK_CLASS = 'import-title';
 // IntersectionObserver margin
