@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Kitsu MALonnaised
 // @description  Shows MyAnimeList.net data on Kitsu.io
-// @version      1.0.4
+// @version      1.0.5
 
 // @author       tophf
 // @namespace    https://github.com/tophf
@@ -938,6 +938,8 @@ class Mal {
 
     el = $('[itemprop="ratingValue"],' +
            '[data-id="info1"] > span:not(.dark_text)', doc);
+    if (!el)
+      return {};
     score = $text(el).trim();
     score = score && Number(score.match(/[\d.]+|$/)[0]) || score;
     const ratingCount = Util.str2num($text('[itemprop="ratingCount"]', doc));
