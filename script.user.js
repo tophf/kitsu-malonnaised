@@ -612,7 +612,7 @@ class App {
         margin-bottom: .25em;
       }
     `
-    // language=JS
+    // language=none
     .replace(
       new RegExp(`#(?=${Object.keys(ID).join('|')})\\b`, 'g'),
       `#${ID.me}-`
@@ -835,10 +835,12 @@ class InterceptXHR {
 
   static onOpen(url) {
     // https://kitsu.io/api/edge/anime?........&include=categories.......
-    if (!App.data.TID &&
-        url.includes('&include=') && (
-          url.includes('/anime?') ||
-          url.includes('/manga?'))) {
+    if (
+      !App.data.TID &&
+      url.includes('&include=') && (
+        url.includes('/anime?') ||
+        url.includes('/manga?'))
+    ) {
       const u = new URL(url);
       u.searchParams.set('include', u.searchParams.get('include') + ',mappings');
       u.searchParams.set('fields[mappings]', 'externalSite,externalId');
@@ -1197,8 +1199,9 @@ class Render {
     chars = chars
       .map((c, i) => [c, i])
       .sort((
-          [[typeA, [, , imgA]], i],
-          [[typeB, [, , imgB]], j]) =>
+        [[typeA, [, , imgA]], i],
+        [[typeB, [, , imgB]], j]
+      ) =>
         (typeB === 'Main') - (typeA === 'Main') ||
         !!imgB - !!imgA ||
         i - j)
@@ -1216,7 +1219,7 @@ class Render {
         children: [
           'Characters ',
           Util.externalLink({
-            href:`${url}/${slug}/characters`,
+            href: `${url}/${slug}/characters`,
             textContent: 'on MAL',
             $mal: 'chars-all',
           }),
@@ -1620,8 +1623,10 @@ class Util {
     });
   }
 
-  static externalLink(props,
-                      children = props.children || props.textContent || []) {
+  static externalLink(
+    props,
+    children = props.children || props.textContent || []
+  ) {
     props.tag = 'a';
     props.target = '_blank';
     props.rel = 'noopener noreferrer';
@@ -1668,9 +1673,11 @@ function $create(props,
   if (!Array.isArray(children))
     children = [children];
 
-  for (let index = 0, node, info = props, ref = referenceNode;
-       index <= children.length;
-       info = children[index], ref = el.childNodes[childIndex], index++) {
+  for (
+    let index = 0, node, info = props, ref = referenceNode;
+    index <= children.length;
+    info = children[index], ref = el.childNodes[childIndex], index++
+  ) {
 
     if (!info)
       continue;
