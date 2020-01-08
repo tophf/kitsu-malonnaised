@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Kitsu MALonnaised
 // @description  Shows MyAnimeList.net data on Kitsu.io
-// @version      1.0.5
+// @version      1.0.6
 
 // @author       tophf
 // @namespace    https://github.com/tophf
@@ -40,6 +40,8 @@ const MAL_STAFF_LIMIT = 4;
 const MAL_CSS_CHAR_IMG = 'a[href*="/character/"] img[data-src]';
 const MAL_CSS_VA_IMG = 'a[href*="/people/"] img[data-src]';
 const KITSU_RECS_PER_ROW = 4;
+const KITSU_RECS_HOVER_DELAY = 250;
+const KITSU_RECS_HOVER_DURATION = 500;
 const KITSU_GRAY_LINK_CLASS = 'import-title';
 // IntersectionObserver margin
 const LAZY_MARGIN = 200;
@@ -312,7 +314,7 @@ class App {
     const RECS_MIN_HEIGHT = 220;
     const RECS_MAX_HEIGHT = 20e3;
     const RECS_IMG_MARGIN = '.5rem';
-    const RECS_TRANSITION_TIMING = '.5s .25s';
+    const RECS_TRANSITION_TIMING = `${KITSU_RECS_HOVER_DURATION}ms ${KITSU_RECS_HOVER_DELAY}ms`;
 
     const EXT_LINK_SIZE_EM = .8;
 
@@ -505,21 +507,8 @@ class App {
       #RECS ul:hover {
         max-height: ${RECS_MAX_HEIGHT}px;
       }
-      #RECS ul::before {
-        background: linear-gradient(transparent 33%, var(--${ID.me}-bg-color));
-        position: absolute;
-        display: block;
-        content: "";
-        width: 100%;
-        min-height: 100%;
-        pointer-events: none;
-        z-index: 999;
-        transition: min-height ${RECS_TRANSITION_TIMING},
-                    opacity ${RECS_TRANSITION_TIMING};
-      }
-      #RECS ul:hover::before {
-        opacity: 0;
-        min-height: ${RECS_MAX_HEIGHT}px;
+      #RECS ul:not(.hovered) {
+        -webkit-mask-image: linear-gradient(#000, transparent);
       }
       #RECS li {
         list-style: none;
@@ -1320,6 +1309,8 @@ class Render {
       }, {
         tag: 'ul',
         onmouseover: Render.recommendationsHidden,
+        onmouseenter: Render.onRecsHovered,
+        onmouseleave: Render.onRecsHovered,
         children: recs.slice(0, KITSU_RECS_PER_ROW).map(Render.rec, arguments[0]),
       }],
     });
@@ -1348,6 +1339,13 @@ class Render {
       });
     }
     $(`#${ID.RECS} ul`).append(...added.children);
+  }
+
+  static onRecsHovered(e) {
+    clearTimeout(Render.recsHoveredTimer);
+    const on = e.type === 'mouseenter';
+    const delay = KITSU_RECS_HOVER_DELAY + (on ? 0 : KITSU_RECS_HOVER_DURATION * .9);
+    Render.recsHoveredTimer = setTimeout(() => this.classList.toggle('hovered', on), delay);
   }
 
   static async recommendationsMore(e) {
