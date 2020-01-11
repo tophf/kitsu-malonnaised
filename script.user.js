@@ -24,10 +24,8 @@
 // @connect      kitsu.io
 // ==/UserScript==
 
-'use strict';
-/* global GM_info GM_xmlhttpRequest GM_addStyle GM_getValue GM_setValue GM_openInTab */
-/* global GM_getResourceText unsafeWindow exportFunction */
 /* global LZStringUnsafe */
+'use strict';
 
 const API_URL = 'https://kitsu.io/api/edge/';
 const MAL_URL = 'https://myanimelist.net/';
@@ -76,10 +74,10 @@ const ID = (name => Object.defineProperties({
 const EXT_LINK = {
   tag: 'SVG:svg',
   viewBox: '0 0 22 22',
-  children: {
+  children: [{
     tag: 'SVG:path',
     d: 'M13,0v2h5.6L6.3,14.3l1.4,1.4L20,3.4V9h2V0H13z M0,4v18h18V9l-2,2v9H2V6h9l2-2H0z',
-  },
+  }],
 };
 
 const agent = (() => {
@@ -97,7 +95,6 @@ const agent = (() => {
         data[name].set(resolve, [thisArg, true]));
     },
     fire(name, ...args) {
-      // console.warn(name, args);
       const listeners = data[name];
       for (const [fn, [thisArg, once]] of listeners) {
         fn.apply(thisArg, args);
@@ -112,18 +109,16 @@ const agent = (() => {
 const API = (() => {
   const API_OPTIONS = {
     headers: {
-      'Accept': 'application/vnd.api+json',
+      Accept: 'application/vnd.api+json',
     },
   };
-  const PATH = Symbol('path');
   const handler = {
-    get(target, endpoint) {
-      let path = target[PATH];
-      path += (path ? '/' : '') + endpoint;
-      const fn = Object.defineProperty(() => {}, PATH, {value: path});
+    get({path}, endpoint) {
+      const fn = () => {};
+      fn.path = path + (path ? '/' : '') + endpoint;
       return new Proxy(fn, handler);
     },
-    apply(target, thisArg, [options]) {
+    async apply(target, thisArg, [options]) {
       for (const [k, v] of Object.entries(options)) {
         if (typeof v === 'object') {
           delete options[k];
@@ -131,12 +126,11 @@ const API = (() => {
             options[`${k}[${kk}]`] = vv;
         }
       }
-      const url = `${API_URL}${target[PATH]}?${new URLSearchParams(options)}`;
-      // console.warn('API', [url]);
-      return fetch(url, API_OPTIONS).then(r => r.json());
+      const url = `${API_URL}${target.path}?${new URLSearchParams(options)}`;
+      return (await fetch(url, API_OPTIONS)).json();
     },
   };
-  return new Proxy({[PATH]: ''}, handler);
+  return new Proxy({path: ''}, handler);
 })();
 
 /**
@@ -170,20 +164,16 @@ class App {
     App.hide();
     if (!slug)
       App.data = {path};
-    if (App.data.path === path) {
-      // console.warn('onUrlChange', ['same path', path]);
+    if (App.data.path === path)
       return;
-    }
     let data = await Cache.read(type, slug) || {};
     App.data = data;
     if (!data.path) {
       App.findMalEquivalent(type, slug);
       return;
     }
-    if (data.expired) {
-      // console.warn('onUrlChange', ['expired']);
+    if (data.expired)
       App.plant(data);
-    }
     if (data.expired || !data.score)
       data = await App.processMal({type, slug, TID: data.TID});
     App.plant(data);
@@ -200,11 +190,9 @@ class App {
     });
     if (await App.processMappings(kitsuData))
       return;
-    const malData = await Util.fetchJson(`${MAL_URL}search/prefix.json?${[
-      'type=' + type,
-      'keyword=' + encodeURIComponent(slug),
-      'v=1',
-    ].join('&')}`);
+    const malData = await Util.fetchJson(`${MAL_URL}search/prefix.json?${
+      new URLSearchParams({type, keyword: encodeURIComponent(slug), v: 1})
+    }`);
     try {
       const ka = kitsuData.data[0].attributes;
       const date = Date.parse(ka.startDate + ' GMT');
@@ -252,7 +240,6 @@ class App {
   }
 
   static async processMal({type, slug, url, TID}) {
-    // console.warn('processMal');
     App.shouldFadeOut = true;
     App.hide();
     const data = await Mal.scavenge(url || MalTypeId.toUrl(TID));
@@ -265,10 +252,8 @@ class App {
   }
 
   static async plant(data) {
-    if (!data || data.path === App.renderedPath) {
-      // console.warn('plant', data ? ['same path', data.path] : 'no data');
+    if (!data || data.path === App.renderedPath)
       return;
-    }
     App.data = data;
     const [type, slug] = data.path.split('/');
     Object.defineProperties(data, {
@@ -613,7 +598,7 @@ class App {
 /**
  * @property {IDB} db
  */
-class Cache {
+class Cache { // eslint-disable-line no-redeclare
 
   static async init() {
     Cache.idb = new IDB(DB_NAME, DB_STORE_NAME);
@@ -833,7 +818,6 @@ class InterceptXHR {
       const u = new URL(url);
       u.searchParams.set('include', u.searchParams.get('include') + ',mappings');
       u.searchParams.set('fields[mappings]', 'externalSite,externalId');
-      // console.warn('XHR:anime');
       return u.href;
     }
     // https://kitsu.io/api/edge/castings?.....&page%5Blimit%5D=4&......
@@ -842,7 +826,6 @@ class InterceptXHR {
         url.includes('page%5Blimit%5D=4')) {
       this.send = InterceptXHR.sendDummy;
       this.setRequestHeader = InterceptXHR.dummy;
-      // console.warn('XHR:castings');
       return false;
     }
   }
@@ -1081,14 +1064,13 @@ class Mutant {
   static async waitFor(selector, base, {skipCurrent} = {}) {
     return !skipCurrent && $(selector, base) ||
       new Promise(resolve => {
-        // console.warn('waitFor', [selector]);
         if (!Mutant._waiting)
           Mutant._waiting = new Set();
         Mutant._waiting.add(selector);
         new MutationObserver((mutations, ob) => {
-          for (var i = 0, m; (m = mutations[i++]);) {
-            for (var j = 0, added = m.addedNodes, n; (n = added[j++]);) {
-              if ('matches' in n && n.matches(selector)) {
+          for (const {addedNodes} of mutations) {
+            for (const n of addedNodes) {
+              if (n.matches && n.matches(selector)) {
                 Mutant._waiting.delete(selector);
                 ob.disconnect();
                 resolve(n);
@@ -1448,9 +1430,7 @@ class Render {
       malLink.appendChild(image);
     }
 
-    // console.log('moved', image);
     if (!this.onmousedown && this.onmouseup) {
-      // console.log('waiting for mouseup');
       await new Promise(resolve => addEventListener('mouseup', resolve, {once: true}));
       await Util.nextTick();
     }
@@ -1490,7 +1470,6 @@ class Render {
   }
 
   static async _kitsuLinkPreclicked(e) {
-    // console.log(e.type, e.target);
     if (!e.target.style.backgroundImage)
       return;
     if (e.type === 'mousedown') {
@@ -1514,7 +1493,6 @@ class Render {
         Mutant.gotMoved(e.target),
         Mutant.gotPath(),
       ]);
-      // console.warn('preclicked', [winner]);
       if (winner !== true)
         return;
     }
