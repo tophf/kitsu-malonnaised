@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Kitsu MALonnaised
 // @description  Shows MyAnimeList.net data on Kitsu.io
-// @version      1.0.6
+// @version      1.0.7
 
 // @author       tophf
 // @namespace    https://github.com/tophf
@@ -51,7 +51,9 @@ const DB_STORE_NAME = 'data';
 const DB_FIELDS = 'path TID time score users favs chars recs'.split(' ');
 
 const HOUR = 3600e3;
-const CACHE_DURATION = 24 * HOUR;
+const DAY = 24 * HOUR;
+const AIR_DATE_MAX_DIFF = 30 * DAY;
+const CACHE_DURATION = DAY;
 
 const ID = (name => Object.defineProperties({
   SCORE: `${name}-SCORE`,
@@ -190,27 +192,24 @@ class App {
     });
     if (await App.processMappings(kitsuData))
       return;
-    const malData = await Util.fetchJson(`${MAL_URL}search/prefix.json?${
+    const {categories: malData} = await Util.fetchJson(`${MAL_URL}search/prefix.json?${
       new URLSearchParams({type, keyword: encodeURIComponent(slug), v: 1})
     }`);
     try {
+      const gist = Util.str2gist(slug);
       const ka = kitsuData.data[0].attributes;
-      const date = Date.parse(ka.startDate + ' GMT');
-      const subType = ka.subtype.toLowerCase();
-      const status = {
-        current: 'Currently Airing',
-        finished: 'Finished Airing',
-        tba: 'Not yet aired',
-        unreleased: 'Not yet aired',
-        upcoming: 'Not yet aired',
-      }[ka.status.toLowerCase()];
-      for (const c of malData.categories) {
+      const kDate = +Date.parse(ka.startDate + ' GMT');
+      const kSubType = ka.subtype.toLowerCase();
+      for (const c of malData) {
         if (type !== c.type.toLowerCase())
           continue;
-        for (const {url, payload: p} of c.items) {
-          if (status === p.status &&
-              subType === p.media_type.toLowerCase() &&
-              date === Date.parse(p.aired.split(' to ')[0] + ' GMT')) {
+        for (const {url, name, payload: p} of c.items) {
+          const mDate = Date.parse(p.aired.split(' to ')[0] + ' GMT');
+          const dateDiff = kDate ? Math.abs(kDate - mDate) : Date.now() - mDate;
+          if (dateDiff < AIR_DATE_MAX_DIFF && (
+            dateDiff <= DAY && kSubType !== p.media_type.toLowerCase() ||
+            Util.str2gist(name) === gist
+          )) {
             const TID = MalTypeId.fromUrl(url);
             App.plant({
               TID,
@@ -224,7 +223,7 @@ class App {
         }
       }
     } catch (e) {}
-    console.warn('No match on MAL for %s/%s', type, slug, malData);
+    console.warn('No match on MAL for %s/%s', type, slug, malData, kitsuData);
   }
 
   static async processMappings(payload) {
@@ -1539,6 +1538,10 @@ class Util {
 
   static str2num(str) {
     return str && Number(str.replace(/,/g, '')) || undefined;
+  }
+
+  static str2gist(str) {
+    return str.replace(/\W+/g, ' ').trim().toLowerCase();
   }
 
   static num2str(num) {
