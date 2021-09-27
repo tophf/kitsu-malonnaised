@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Kitsu MALonnaised
 // @description  Shows MyAnimeList.net data on Kitsu.io
-// @version      1.0.7
+// @version      1.0.8
 
 // @author       tophf
 // @namespace    https://github.com/tophf
@@ -17,7 +17,7 @@
 // @grant        GM_getResourceText
 // @grant        unsafeWindow
 
-// @resource     LZString https://greasyfork.org/scripts/27531/code/LZStringUnsafe.js
+// @resource     LZString https://cdn.jsdelivr.net/gh/openstyles/lz-string-unsafe@22af192175b5e1707f49c57de7ce942d4d4ad480/lz-string-unsafe.min.js
 // @run-at       document-start
 
 // @connect      myanimelist.net
