@@ -1,14 +1,14 @@
 // ==UserScript==
 // @name         Kitsu MALonnaised
 // @description  Shows MyAnimeList.net data on Kitsu.io
-// @version      1.0.8
-
+// @version      1.0.9
+//
 // @author       tophf
 // @namespace    https://github.com/tophf
 // @inspired-by  https://greasyfork.org/scripts/5890
-
+//
 // @match        https://kitsu.io/*
-
+//
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
 // @grant        GM_setValue
@@ -16,10 +16,10 @@
 // @grant        GM_openInTab
 // @grant        GM_getResourceText
 // @grant        unsafeWindow
-
+//
 // @resource     LZString https://cdn.jsdelivr.net/gh/openstyles/lz-string-unsafe@22af192175b5e1707f49c57de7ce942d4d4ad480/lz-string-unsafe.min.js
 // @run-at       document-start
-
+//
 // @connect      myanimelist.net
 // @connect      kitsu.io
 // ==/UserScript==
@@ -54,6 +54,7 @@ const HOUR = 3600e3;
 const DAY = 24 * HOUR;
 const AIR_DATE_MAX_DIFF = 30 * DAY;
 const CACHE_DURATION = DAY;
+const GZIP = window.CompressionStream;
 
 const ID = (name => Object.defineProperties({
   SCORE: `${name}-SCORE`,
@@ -610,6 +611,13 @@ class Cache { // eslint-disable-line no-redeclare
         }
       },
     });
+    if (GZIP) return;
+    Cache.initLZ();
+    Cache.zip = Cache.LZ;
+    Cache.unzip = Cache.unLZ;
+  }
+
+  static initLZ() {
     const url = URL.createObjectURL(new Blob([
       GM_getResourceText('LZString'),
       `;(${() => {
@@ -620,8 +628,15 @@ class Cache { // eslint-disable-line no-redeclare
           });
       }})()`,
     ]));
-    const q = Cache._workerQueue = [];
-    const w = Cache._worker = new Worker(url);
+    const q = [];
+    const w = new Worker(url);
+    const invokeWorker = (action, value) => new Promise(resolve => {
+      const id = performance.now();
+      const payload = {id, action, value};
+      q.push({resolve, payload});
+      if (q.length === 1)
+        w.postMessage(payload);
+    });
     w.onmessage = ({data: {id, value}}) => {
       const i = q.findIndex(_ => _.payload.id === id);
       q[i].resolve(value);
@@ -630,6 +645,8 @@ class Cache { // eslint-disable-line no-redeclare
         w.postMessage(q[0].payload);
     };
     URL.revokeObjectURL(url);
+    Cache.LZ = invokeWorker.bind(null, 'compressToUTF16');
+    Cache.unLZ = invokeWorker.bind(null, 'decompressFromUTF16');
   }
 
   static async read(type, slug) {
@@ -641,7 +658,7 @@ class Cache { // eslint-disable-line no-redeclare
       data.expired = true;
     if (data.lz) {
       for (const [k, v] of Object.entries(data.lz))
-        data[k] = Util.parseJson(await Cache.invokeWorker('decompressFromUTF16', v));
+        data[k] = Util.parseJson(await Cache.unzip(v));
       data.lz = undefined;
     }
     return data;
@@ -651,6 +668,7 @@ class Cache { // eslint-disable-line no-redeclare
     data.path = type + '/' + slug;
     data.time = Date.now();
     const toWrite = {};
+    let lz, lzKeys;
     for (const k of DB_FIELDS) {
       const v = data[k];
       if (v === undefined)
@@ -658,13 +676,15 @@ class Cache { // eslint-disable-line no-redeclare
       if (v && typeof v === 'object') {
         const str = JSON.stringify(v);
         if (str.length > 100) {
-          toWrite.lz = toWrite.lz || {};
-          toWrite.lz[k] = await Cache.invokeWorker('compressToUTF16', str);
+          (lzKeys || (lzKeys = [])).push(k);
+          (lz || (lz = [])).push(Cache.zip(str));
           continue;
         }
       }
       toWrite[k] = v;
     }
+    if (lz)
+      toWrite.lz = (await Promise.all(lz)).reduce((res, v, i) => ((res[lzKeys[i]] = v), res), {});
     try {
       await Cache.idb.put(toWrite);
     } catch (e) {
@@ -698,14 +718,19 @@ class Cache { // eslint-disable-line no-redeclare
     });
   }
 
-  static invokeWorker(action, value) {
-    return new Promise(resolve => {
-      const id = performance.now();
-      const payload = {id, action, value};
-      Cache._workerQueue.push({resolve, payload});
-      if (Cache._workerQueue.length === 1)
-        Cache._worker.postMessage(payload);
-    });
+  static zip(str) {
+    const zipped = new Response(str).body.pipeThrough(new GZIP('gzip'));
+    return new Response(zipped).blob();
+  }
+
+  /** @param {Blob|string|undefined} v */
+  static unzip(v) {
+    if (!v)
+      return;
+    if (typeof v === 'string')
+      return (!Cache.unLZ && Cache.initLZ(), Cache.unLZ(v));
+    /* global DecompressionStream */
+    return new Response(v.stream().pipeThrough(new DecompressionStream('gzip'))).text();
   }
 }
 
