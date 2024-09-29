@@ -1,13 +1,13 @@
 // ==UserScript==
 // @name         Kitsu MALonnaised
-// @description  Shows MyAnimeList.net data on Kitsu.io
-// @version      1.0.9
+// @description  Shows MyAnimeList.net data on kitsu.app
+// @version      1.1.0
 //
 // @author       tophf
 // @namespace    https://github.com/tophf
 // @inspired-by  https://greasyfork.org/scripts/5890
 //
-// @match        https://kitsu.io/*
+// @match        https://kitsu.app/*
 //
 // @grant        GM_xmlhttpRequest
 // @grant        GM_getValue
@@ -21,13 +21,13 @@
 // @run-at       document-start
 //
 // @connect      myanimelist.net
-// @connect      kitsu.io
+// @connect      self
 // ==/UserScript==
 
 /* global LZStringUnsafe */
 'use strict';
 
-const API_URL = 'https://kitsu.io/api/edge/';
+const API_URL = 'https://kitsu.app/api/edge/';
 const MAL_URL = 'https://myanimelist.net/';
 const MAL_CDN_URL = 'https://cdn.myanimelist.net/';
 let MAL_IMG_EXT = '.jpg';
@@ -832,7 +832,7 @@ class InterceptXHR {
   }
 
   static onOpen(url) {
-    // https://kitsu.io/api/edge/anime?........&include=categories.......
+    // https://kitsu.app/api/edge/anime?........&include=categories.......
     if (
       !App.data.TID &&
       url.includes('&include=') && (
@@ -844,7 +844,7 @@ class InterceptXHR {
       u.searchParams.set('fields[mappings]', 'externalSite,externalId');
       return u.href;
     }
-    // https://kitsu.io/api/edge/castings?.....&page%5Blimit%5D=4&......
+    // https://kitsu.app/api/edge/castings?.....&page%5Blimit%5D=4&......
     if (App.data.chars &&
         url.includes('/castings?') &&
         url.includes('page%5Blimit%5D=4')) {
